@@ -44,6 +44,31 @@ By default notification emails are sent with System.Net.Mail.SmtpClient, which c
 
 Port 465 uses TLS on connect; with `--smtpssl` other ports require STARTTLS. If MailKit can not be loaded, a warning is logged and SmtpClient is used.
 
+## Notification emails on Windows Server 2008 / 2008 R2
+Most mail servers now accept only TLS 1.2. Windows Server 2008 and 2008 R2 do not use TLS 1.2 for outgoing connections by default, so sending the notification email fails with `Unable to send notification email : The function requested is not supported` (the text is in the language of Windows). This happens with SmtpClient and with MailKit.
+
+To enable TLS 1.2, save the following as a `.reg` file, import it on the server, then restart the server:
+```
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.2\Client]
+"DisabledByDefault"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\.NETFramework\v4.0.30319]
+"SystemDefaultTlsVersions"=dword:00000001
+"SchUseStrongCrypto"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\.NETFramework\v4.0.30319]
+"SystemDefaultTlsVersions"=dword:00000001
+"SchUseStrongCrypto"=dword:00000001
+```
+If `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.2\Client` already has `Enabled` set to `0`, TLS 1.2 was disabled on purpose: check why before changing it.
+
+On Windows Server 2008 SP2 (not R2) also:
+* Install .NET Framework 4.6.2 (the newest it supports) and Windows Management Framework 3.0 (PowerShell 3.0). The built-in PowerShell 2.0 can not run 7zBackup nor load MailKit. Build the MailKit folder from `lib\net462`.
+* TLS 1.2 support comes with update KB4019276. If its installer says the update does not apply, a later Windows update may already have installed it: `C:\Windows\System32\schannel.dll` version 6.0.6002.24129 or newer (e.g. 6.0.6003.x) has it.
+* WMF 3.0 is not compatible with some server products (e.g. Exchange Server 2007 and 2010, SharePoint 2010, Small Business Server 2008 and 2011): check Microsoft's WMF 3.0 notes before installing it.
+
 ## Features
 * Backup your files in compressed archives by 7-zip (7z format or zip or tar)
 * Full, Differential, Incremental and Copy Backups
