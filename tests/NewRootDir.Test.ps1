@@ -35,12 +35,18 @@ $messages = @(New-RootDir)
 Assert ($messages.Count -eq 1)                                         "one message returned"
 Assert (("$messages").Contains($BkRootDir))                            "message names the root dir"
 
-Write-Host "`n Case: README cannot be written (a directory has its name)"
-$BkRootDir = Join-Path $work "noreadme"
-New-Item -ItemType Directory $BkRootDir, "$BkRootDir\__README__PLEASE__README__.txt" | Out-Null
+Write-Host "`n Case: README cannot be written (the root dir is created, the README fails)"
+# A deny rule for new files, inherited by sub folders only: the root dir is created, the README in it is refused
+$parent = Join-Path $work "parent"
+New-Item -ItemType Directory $parent | Out-Null
+$BkRootDir = Join-Path $parent "root"
+icacls $parent /deny "$($env:USERNAME):(OI)(CI)(IO)(WD)" | Out-Null
 $messages = @(New-RootDir)
+icacls $parent /remove:d $env:USERNAME | Out-Null
+Assert (Test-Path -LiteralPath $BkRootDir -PathType Container)         "precondition, the root dir was created"
+Assert (!(Test-Path -LiteralPath "$BkRootDir\__README__PLEASE__README__.txt")) "precondition, the README was refused"
 Assert ($messages.Count -eq 1)                                         "one message returned"
-Assert (("$messages").Contains($BkRootDir))                            "message names the root dir"
+Assert (("$messages").StartsWith("Can't write into $BkRootDir"))       "message is the README one and names the root dir [$messages]"
 
 Remove-Item -LiteralPath $work -Recurse -Force
 Write-Host ""
