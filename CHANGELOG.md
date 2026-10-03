@@ -5,6 +5,7 @@ Ui (user interface). Some old entries use Minor or New, or have no category.
 
 ## Unreleased
 
+- Code: Test-Lock reads the lock file lines into a table instead of three pattern tests
 - Code: 14 Write-Output followed by Return became a single Return with the value
 - Code: Format-Elapsed writes the four phase times of the log, and the unused SelectionEnd, CompressionEnd and PostProcessFilesEnd values are gone. Task time now shows seconds with decimals like the other times
 - Code: The six match* selection blocks are read by one function (Read-MatchRule). matchincludefiles values are now trimmed like the others

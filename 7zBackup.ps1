@@ -1278,12 +1278,12 @@ Function Test-Lock {
 	If(Test-Path -LiteralPath $BkLockFile -pathType Leaf) {
 
 		# A previously executed script has left it's lock file
-		$OldPid = $null; $OldStart = $null; $OldRoot = $null
+		$lock = @{}
 		foreach ($line in @(Get-Content $BkLockFile -Encoding Ascii)) {
-			If($line -match "^PID=")   { $OldPid   = $line.Substring($line.IndexOf("=") + 1) }
-			If($line -match "^Start=") { $OldStart = $line.Substring($line.IndexOf("=") + 1) }
-			If($line -match "^Root=")  { $OldRoot  = $line.Substring($line.IndexOf("=") + 1) }
+			$name, $value = $line -split "=", 2
+			$lock[$name] = $value
 		}
+		$OldPid = $lock.PID; $OldStart = $lock.Start; $OldRoot = $lock.Root
 
 		If ($OldPid) {
 
