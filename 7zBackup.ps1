@@ -1790,7 +1790,7 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	If((Test-Variable "BkArchiveVolumes") -eq $True) {
 		If(!($BkArchiveVolumes -is [array])) { $BkArchiveVolumes = @($BkArchiveVolumes) }
-		$BkArchiveVolumes | ForEach-Object { If($_ -notmatch "\d+[b|k|m|g]") { Write-Output ("Missing or invalid --volumes argument {0} " -f $_) } }
+		$BkArchiveVolumes | ForEach-Object { If($_ -notmatch "^\d+[bkmg]$") { Write-Output ("Missing or invalid --volumes argument {0} " -f $_) } }
 	} 
 
 	# --------------------------------------------------------------------------------------------------------------------------
@@ -1953,7 +1953,7 @@ Function Assert-Variables {
 
 		If(!(Test-Variable "BkJunctionBin")) { 
 			${Env:ProgramFiles}, ${Env:ProgramFiles(x86)} | ForEach-Object {
-				If(Test-Path -Path $_ -ChildPath "\SysInternalsSuite\junction.exe" -PathType Leaf) {
+				If(Test-Path -Path (Join-Path -Path $_ -ChildPath "\SysInternalsSuite\junction.exe") -PathType Leaf) {
 				Set-Variable -Name BkJunctionBin -value  (Join-Path -Path $_ -ChildPath "\SysInternalsSuite\junction.exe") -scope Script
 				}
 			}
@@ -2531,7 +2531,7 @@ public class SevenZipOutput {
 					Trace " ------------------------------------------------------------------------------"
 					Get-ChildItem $BkDestPath | Where-Object { $_.Name -match $fileNameRgx -and !$_.PSIscontainer } | Sort-Object @{expression={$_.Name};Descending=$true} | foreach-object {
 						If(!($BkRotate -le 0)) { 
-							If ($_.Name -match ([Regex]::Escape($BkArchiveName))) {
+							If ($_.Name.StartsWith($BkArchiveName, [StringComparison]::OrdinalIgnoreCase)) {
 								Trace (" New      : {0,-48} {1,15:n2} MB " -f $_.Name, $($_.Length / 1MB) ); $totalArchiveBytes += [int64]$_.Length
 							} Else {
 								Trace (" Kept     : {0,-48} {1,15:n2} MB " -f $_.Name, $($_.Length / 1MB) ); $totalArchiveBytes += [int64]$_.Length
