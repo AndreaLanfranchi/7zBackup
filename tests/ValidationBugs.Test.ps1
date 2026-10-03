@@ -42,7 +42,7 @@ foreach ($size in "10m", "1G", "700k", "5b") {
 	$errors = @(Invoke-Validation @{ BkArchiveVolumes = @($size) } | Where-Object { $_ -match "volumes" })
 	Assert ($errors.Count -eq 0) "$size is accepted [$($errors -join ' | ')]"
 }
-foreach ($size in "abc10b", "10|", "10", "m", "10mb", "|") {
+foreach ($size in "abc10b", "10|", "10", "m", "10mb", "|", "10m`n") {
 	$errors = @(Invoke-Validation @{ BkArchiveVolumes = @($size) } | Where-Object { $_ -match "volumes" })
 	Assert ($errors.Count -eq 1) "$size is refused [$($errors -join ' | ')]"
 }

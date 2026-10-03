@@ -1790,7 +1790,7 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	If((Test-Variable "BkArchiveVolumes") -eq $True) {
 		If(!($BkArchiveVolumes -is [array])) { $BkArchiveVolumes = @($BkArchiveVolumes) }
-		$BkArchiveVolumes | ForEach-Object { If($_ -notmatch "^\d+[bkmg]$") { Write-Output ("Missing or invalid --volumes argument {0} " -f $_) } }
+		$BkArchiveVolumes | ForEach-Object { If($_ -notmatch "^\d+[bkmg]\z") { Write-Output ("Missing or invalid --volumes argument {0} " -f $_) } }
 	} 
 
 	# --------------------------------------------------------------------------------------------------------------------------
