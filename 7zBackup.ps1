@@ -512,8 +512,7 @@ Function New-Junction {
 		Start-Sleep -Milliseconds 10
 		
 		# Test is present
-		Write-Output (Test-Path -Path $jPath)
-		Return
+		Return (Test-Path -Path $jPath)
 
 		
 	}
@@ -558,8 +557,7 @@ Function New-SymLink {
 		Start-Sleep -Milliseconds 10
 		
 		# Test is present
-		Write-Output (Test-Path -Path $jPath)
-		Return
+		Return (Test-Path -Path $jPath)
 		
 	}
 	Write-Output $False
@@ -578,8 +576,7 @@ Function New-RootDir {
 	# Create Root Directory and place a huge README.TXT
 	New-Item -Path $BkRootDir -ItemType Directory | Out-Null
 	If(!$?) { 
-		Write-Output ("Unable to create directory {0}. Check permissions." -f $BkRootDir)
-		Return
+		Return ("Unable to create directory {0}. Check permissions." -f $BkRootDir)
 	} Else {
 		If([int]$MyContext.WinVer[0] -lt 6 ) {
 			New-Item (Join-Path -Path $BkRootDir -ChildPath "__README__PLEASE__README__.txt") -type File -value "This directory contains Junctions.`nDO NOT DELETE THIS DIRECTORY AND IT'S CONTENTS USING WINDOWS EXPLORER.`nUse Junction -d to delete junctions and then safely delete the directory." | Out-Null
@@ -587,8 +584,7 @@ Function New-RootDir {
 			New-Item (Join-Path -Path $BkRootDir -ChildPath "__README__PLEASE__README__.txt") -type File -value "This directory contains junctions or symbolic links.`nDO NOT DELETE THIS DIRECTORY AND IT'S CONTENTS USING WINDOWS EXPLORER.`nUse the RD command to delete the links and then safely delete the directory, use cmd /c rmdir <thesymlink'sname> in case of using Powershell." | Out-Null
 		}
 		If(!$?) {
-			Write-Output ("Can't write into {0}. Check permissions." -f $BkRootDir)
-			Return
+			Return ("Can't write into {0}. Check permissions." -f $BkRootDir)
 		}
 	}
 	
@@ -1016,8 +1012,7 @@ Function Remove-Junction  {
 		Start-Sleep -Milliseconds 10
 		
 		# Test is no more present !!
-		Write-Output ((Test-Path -Path $jPath) -eq $False)
-		Return
+		Return ((Test-Path -Path $jPath) -eq $False)
 		
 	}
 	Write-Output $False
@@ -1051,8 +1046,7 @@ Function Remove-RootDir {
 		}
 		If($junctionsRemoved -And (@(Get-ChildItem -Path $rootPath | Where-Object {$_.PsIsContainer}).Count -eq 0) ) {
 			Remove-Item -Path $rootPath -Recurse -Force | Out-Null
-			Write-Output $?
-			Return 
+			Return $?
 		}
 	}
 	Write-Output $False
@@ -1077,8 +1071,7 @@ Function Remove-SymLink  {
 		Start-Sleep -Milliseconds 10
 		
 		# Test is no more present !!
-		Write-Output ((Test-Path -LiteralPath $jPath) -eq $False)
-		Return
+		Return ((Test-Path -LiteralPath $jPath) -eq $False)
 		
 	}
 	Write-Output $False
@@ -1300,8 +1293,7 @@ Function Test-Lock {
 			$OldProcess = Get-Process -Id $OldPid
 			If (($OldProcess) -And ($OldPid -ne $PID)) {
 				If (($null -eq $OldProcess.StartTime) -Or ($OldProcess.StartTime.ToUniversalTime().Ticks -eq $OldStart)) {
-					Write-Output ("A previous operation is running with process id {0}`n Quitting ...`n " -f $OldPid)
-					Return
+					Return ("A previous operation is running with process id {0}`n Quitting ...`n " -f $OldPid)
 				}
 			}
 
@@ -1309,8 +1301,7 @@ Function Test-Lock {
 			If(($OldRoot) -And (Test-Path -LiteralPath $OldRoot -PathType Container)) { Remove-RootDir $OldRoot | Out-Null }
 			Remove-Item -LiteralPath $BkLockFile -Force | Out-Null
 			If(!($?)) {
-				Write-Output ("Could not remove a previous lock file`n Quitting ...`n ")
-				Return
+				Return ("Could not remove a previous lock file`n Quitting ...`n ")
 			}
 		} Else {
 		
@@ -1320,8 +1311,7 @@ Function Test-Lock {
 				If(!($?)) {
 					Write-Output ("Could not remove a previous lock file")
 					Write-Output ("Check lock file {0}" -f $BkLockFile )
-					Write-Output ("Quitting ...")
-					Return
+					Return ("Quitting ...")
 				}
 				
 			} Else {
@@ -1340,8 +1330,7 @@ Function Test-Lock {
 	New-Item -Path $BkLockFile -ItemType File -Force | Out-Null
 	If ($?) {("PID={0}`nStart={1}`nRoot={2}" -f [System.Diagnostics.Process]::GetCurrentProcess().Id, [System.Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().Ticks, $BkRootDir) | Out-File $BkLockFile -encoding ASCII -append }
 	If(!($?)) {
-		Write-Output ("Could not write lock file`n Quitting ...`n ")
-		Return
+		Return ("Could not write lock file`n Quitting ...`n ")
 	}
 	$MyContext.LockOwned = $True
 
@@ -1372,11 +1361,9 @@ Function Test-Path-Writable {
 		}
 		If ($?) {
 			Remove-Item $dummyItem | Out-Null
-			Write-Output $?
-			Return
+			Return $?
 		} Else { 
-			Write-Output $?
-			Return
+			Return $?
 		}
 		
 	}
@@ -1689,8 +1676,7 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Check we're on Powershell 3.x. If not early exit.
 	If($MyContext.PSVer -lt 2) {
-		Write-Output ("You must be on PowerShell 2.x (or better) to run this script. You're on {0}" -f $MyContext.PSVer)
-		Return
+		Return ("You must be on PowerShell 2.x (or better) to run this script. You're on {0}" -f $MyContext.PSVer)
 	}
 
 	# --------------------------------------------------------------------------------------------------------------------------
