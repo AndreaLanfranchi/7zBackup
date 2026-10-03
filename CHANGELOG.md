@@ -5,6 +5,15 @@ Ui (user interface). Some old entries use Minor or New, or have no category.
 
 ## Unreleased
 
+- Bug: --type FULL named the archive with FULL and --type full with full: the validated type is now kept in lower case (#16)
+- Code: Command line arguments are read from two tables (options with a value, switches) instead of a 42-case switch (#16)
+- Code: Assert-Variables checks use helpers: Set-DefaultVariable, Resolve-Choice, Resolve-BooleanVariable, Resolve-IntegerVariable and Resolve-AddressList (one copy for --notify, --notifyCc and --notifyBcc, was three). Test-Variable is a single quiet Get-Variable call (#16)
+- Code: Close-Writers and Get-NotificationExtras are shared by the cleanup and both email paths, and Send-Notification no longer branches on single value or array (#16)
+- Code: ProcessFolder uses foreach, FileAttributes names instead of 1024 and 32, and Trace-ScanProgress for the status line it repeated 3 times (#16)
+- Code: IsValidEmailAddress, IsValidHostName, IsValidIPAddress and Test-FsAttribute return their value directly (#16)
+- Code: Selection file directives are read in one pass from a table (Read-SelectionDirectives) and the size and age limits are checked by one loop (ConvertTo-Limit) (#15)
+- Code: ProcessFolder writes exclusions and exceptions through Add-Exclusion and Add-ScanException, replacing 13 repeated log lines (#15)
+- Bug: PostArchiving printed a stray "+" when an archived item was no longer on disk: Write-Host got it as an argument (#15)
 - Code: The help and log header link to the new repository address https://github.com/AndreaLanfranchi/7zBackup
 
 ## 2.1.5-Stable (2026-09-12, Anlan)
