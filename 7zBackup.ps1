@@ -1495,58 +1495,65 @@ Function Read-SelectionDirectives ([string[]]$lines) {
 # -----------------------------------------------------------------------------
 Function Assert-Arguments {
 
-	If($BkArguments.length -ne 0) {
-		$i = 0
-		do {
-			switch ($BkArguments[$i]) { 
-				"--type"            { Set-Variable -name BkType -value $BkArguments[++$i] -scope Script }
-				"--workdir"         { Set-Variable -name BkWorkDir -value $BkArguments[++$i] -scope Script }
-				"--workdrive"       { Set-Variable -name BkWorkDrive -value $BkArguments[++$i] -scope Script }
-				"--selection"       { Set-Variable -name BkSelection -value $BkArguments[++$i] -scope Script }
-				"--destpath"        { Set-Variable -name BkDestPath -value $BkArguments[++$i] -scope Script }
-				"--archiveprefix"   { Set-Variable -name BkArchivePrefix -value $BkArguments[++$i] -scope Script }
-				"--prefix"          { Set-Variable -name BkArchivePrefix -value $BkArguments[++$i] -scope Script }
-				"--archivetype"     { Set-Variable -name BkArchiveType -value $BkArguments[++$i] -scope Script }
-				"--compression"     { Set-Variable -name BkArchiveCompression -value $BkArguments[++$i] -scope Script }
-				"--threads"         { Set-Variable -name BkArchiveThreads -value $BkArguments[++$i] -scope Script }
-				"--solid"           { Set-Variable -name BkArchiveSolid -value $BkArguments[++$i] -scope Script }
-				"--volumes"         { Set-Variable -name BkArchiveVolumes -value $BkArguments[++$i] -scope Script }
-				"--archivepassword" { Set-Variable -name BkArchivePassword -value $BkArguments[++$i] -scope Script }
-				"--password"        { Set-Variable -name BkArchivePassword -value $BkArguments[++$i] -scope Script }
-				"--encryptheaders"  { Set-Variable -name BkEncryptHeaders -value $True -scope Script }
-				"--rotate"          { Set-Variable -name BkRotate -value $BkArguments[++$i] -scope Script }
-				"--emptydirs"       { Set-Variable -name BkKeepEmptyDirs -value $True -scope Script }
-				"--maxdepth"        { Set-Variable -name BkMaxDepth -value $BkArguments[++$i] -scope Script }
-				"--maxfileage"      { Set-Variable -name BkMaxFileAge -value $BkArguments[++$i] -scope Script }		
-				"--minfileage"      { Set-Variable -name BkMinFileAge -value $BkArguments[++$i] -scope Script }				
-				"--maxfilesize"     { Set-Variable -name BkMaxFileSize -value $BkArguments[++$i] -scope Script }		
-				"--minfilesize"     { Set-Variable -name BkMinFileSize -value $BkArguments[++$i] -scope Script }				
-				"--clearbit"        { Set-Variable -name BkClearBit -value $BkArguments[++$i] -scope Script }
-				"--logfile"         { Set-Variable -name BkLogFile -value $BkArguments[++$i] -scope Script ; Remove-Variable -name BkLogFile -scope Script }
-				"--notify"          { Set-Variable -name BkNotifyLog -value $BkArguments[++$i] -scope Script }
-				"--notifyto"        { Set-Variable -name BkNotifyLog -value $BkArguments[++$i] -scope Script }
-				"--notifytoCc"      { Set-Variable -name BkNotifyLogCc -value $BkArguments[++$i] -scope Script }
-				"--notifytoBcc"     { Set-Variable -name BkNotifyLogBcc -value $BkArguments[++$i] -scope Script }
-				"--notifyfrom"      { Set-Variable -name BkSmtpFrom -value $BkArguments[++$i] -scope Script }
-				"--notifyextra"     { Set-Variable -name BkNotifyExtra -value $BkArguments[++$i] -scope Script }		
-				"--smtpserver"      { Set-Variable -name BkSmtpRelay -value $BkArguments[++$i] -scope Script }
-				"--smtpport"        { Set-Variable -name BkSmtpPort -value $BkArguments[++$i] -scope Script }
-				"--smtpuser"        { Set-Variable -name BkSmtpUser -value $BkArguments[++$i] -scope Script }
-				"--smtppass"        { Set-Variable -name BkSmtpPass -value $BkArguments[++$i] -scope Script }
-				"--smtpssl"         { Set-Variable -name BkSmtpSSL -value $True -scope Script }
-				"--mailkitpath"     { Set-Variable -name BkMailKitPath -value $BkArguments[++$i] -scope Script }
-				"--7zbin"           { Set-Variable -name Bk7ZipBin -value $BkArguments[++$i] -scope Script }
-				"--7zipbin"         { Set-Variable -name Bk7ZipBin -value $BkArguments[++$i] -scope Script }
-				"--jbin"            { Set-Variable -name BkJunctionBin -value $BkArguments[++$i] -scope Script }
-				"--dry"             { Set-Variable -name BkDryRun -value $True -scope Script }
-				"--pre"             { Set-Variable -name BkPreAction -value $BkArguments[++$i] -scope Script }
-				"--post"            { Set-Variable -name BkPostAction -value $BkArguments[++$i] -scope Script }
-				
-				Default { Write-Output ("Unknown argument {0}" -f $BkArguments[$i]) }
-			}
+	# Options followed by a value: argument -> variable ($null: value accepted and ignored)
+	$valueArguments = @{
+		'--type'             = 'BkType'
+		'--workdir'          = 'BkWorkDir'
+		'--workdrive'        = 'BkWorkDrive'
+		'--selection'        = 'BkSelection'
+		'--destpath'         = 'BkDestPath'
+		'--archiveprefix'    = 'BkArchivePrefix'
+		'--prefix'           = 'BkArchivePrefix'
+		'--archivetype'      = 'BkArchiveType'
+		'--compression'      = 'BkArchiveCompression'
+		'--threads'          = 'BkArchiveThreads'
+		'--solid'            = 'BkArchiveSolid'
+		'--volumes'          = 'BkArchiveVolumes'
+		'--archivepassword'  = 'BkArchivePassword'
+		'--password'         = 'BkArchivePassword'
+		'--rotate'           = 'BkRotate'
+		'--maxdepth'         = 'BkMaxDepth'
+		'--maxfileage'       = 'BkMaxFileAge'
+		'--minfileage'       = 'BkMinFileAge'
+		'--maxfilesize'      = 'BkMaxFileSize'
+		'--minfilesize'      = 'BkMinFileSize'
+		'--clearbit'         = 'BkClearBit'
+		'--logfile'          = $null
+		'--notify'           = 'BkNotifyLog'
+		'--notifyto'         = 'BkNotifyLog'
+		'--notifytoCc'       = 'BkNotifyLogCc'
+		'--notifytoBcc'      = 'BkNotifyLogBcc'
+		'--notifyfrom'       = 'BkSmtpFrom'
+		'--notifyextra'      = 'BkNotifyExtra'
+		'--smtpserver'       = 'BkSmtpRelay'
+		'--smtpport'         = 'BkSmtpPort'
+		'--smtpuser'         = 'BkSmtpUser'
+		'--smtppass'         = 'BkSmtpPass'
+		'--mailkitpath'      = 'BkMailKitPath'
+		'--7zbin'            = 'Bk7ZipBin'
+		'--7zipbin'          = 'Bk7ZipBin'
+		'--jbin'             = 'BkJunctionBin'
+		'--pre'              = 'BkPreAction'
+		'--post'             = 'BkPostAction'
+	}
+	# Switches without a value: argument -> variable set to $True
+	$switchArguments = @{
+		'--encryptheaders'  = 'BkEncryptHeaders'
+		'--emptydirs'       = 'BkKeepEmptyDirs'
+		'--smtpssl'         = 'BkSmtpSSL'
+		'--dry'             = 'BkDryRun'
+	}
+
+	for ($i = 0; $i -lt $BkArguments.Length; $i++) {
+		$argument = [string]$BkArguments[$i]
+		If($switchArguments.ContainsKey($argument)) {
+			Set-Variable -Name $switchArguments[$argument] -Value $True -Scope Script
+		} ElseIf($valueArguments.ContainsKey($argument)) {
 			$i++
+			If($valueArguments[$argument]) { Set-Variable -Name $valueArguments[$argument] -Value $BkArguments[$i] -Scope Script }
+		} Else {
+			Write-Output ("Unknown argument {0}" -f $argument)
 		}
-		while ($i -lt $BkArguments.length)
 	}
 }
 
