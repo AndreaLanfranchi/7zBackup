@@ -366,9 +366,38 @@ Function Test-FsAttribute {
     param([string]$itemFullName = $(throw "You must provide an item name"),
 	      [string]$attrName = $(throw "You must provide an attribute name"))
 
-	$item = Get-Item -literalPath $itemFullName -Force 
-	Write-Output (($?) -and ($item) -and ($item.Attributes -band [System.IO.FileAttributes]::$attrName))
+	$item = Get-Item -LiteralPath $itemFullName -Force
+	[bool]($item -and ($item.Attributes -band [System.IO.FileAttributes]::$attrName))
 } 
+
+# -----------------------------------------------------------------------------
+# Function 		: Close-Writers
+# -----------------------------------------------------------------------------
+# Description	: Flushes and closes the file stream writers of the script
+# Parameters    : -
+# Returns       : Nothing
+# -----------------------------------------------------------------------------
+Function Close-Writers {
+	$SWriters.GetEnumerator() | ForEach-Object {
+		Try {
+			$_.Value.Flush()
+			$_.Value.Close()
+			$_.Value.Dispose()
+		} Catch {}
+	}
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Get-NotificationExtras
+# -----------------------------------------------------------------------------
+# Description	: Lists the report files of the run which a notification email
+#				  can carry along (not empty, no stats, no README)
+# Parameters    : -
+# Returns       : The files
+# -----------------------------------------------------------------------------
+Function Get-NotificationExtras {
+	Get-ChildItem -Path $BkRootDir -Force | Where-Object { !$_.PSIsContainer -and ($_.Length -gt 0) -and ($_.Name -notmatch "stats|README") }
+}
 
 # -----------------------------------------------------------------------------
 # Function 		: Clear-Script
@@ -380,14 +409,7 @@ Function Test-FsAttribute {
 # -----------------------------------------------------------------------------
 Function Clear-Script {
 
-	#Ensure file stream writers are closed
-	$SWriters.GetEnumerator() | ForEach-Object {
-		Try {
-		$_.Value.Flush()
-		$_.Value.Close()
-		$_.Value.Dispose()
-		} Catch {}
-	}
+	Close-Writers
 
 	
 	# Only the run that created the lock may remove it
@@ -412,7 +434,7 @@ Function Clear-Script {
 # -----------------------------------------------------------------------------
 Function IsValidEmailAddress { 
 	param([string]$emailAddress = $(throw "You must provide an address"))
-	Write-Output ($emailAddress -match "^[a-zA-Z0-9]([\w\.+-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([\w\.-]*[a-zA-Z0-9])?\.[a-zA-Z][a-zA-Z\.]*[a-zA-Z]$")
+	$emailAddress -match "^[a-zA-Z0-9]([\w\.+-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([\w\.-]*[a-zA-Z0-9])?\.[a-zA-Z][a-zA-Z\.]*[a-zA-Z]$"
 }	
 
 # -----------------------------------------------------------------------------
@@ -425,7 +447,7 @@ Function IsValidEmailAddress {
 # -----------------------------------------------------------------------------
 Function IsValidHostName { 
 	param([string]$hostName = $(throw "You must provide an host name"))
-	Write-Output ($hostName -match "^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z]|[A-Za-z][A-Za-z0-9\-]*[A-Za-z0-9])$")
+	$hostName -match "^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z]|[A-Za-z][A-Za-z0-9\-]*[A-Za-z0-9])$"
 }	
 
 # -----------------------------------------------------------------------------
@@ -464,8 +486,7 @@ Function GetDestPathFreeSpace {
 # -----------------------------------------------------------------------------
 Function IsValidIPAddress { 
 	param([string]$ipAddress = $(throw "You must provide an address"))
-	Set-Variable -name "Ip" -value ([System.Net.IPAddress]::Parse("127.0.0.1")) -scope Local
-	Write-Output ([System.Net.IPAddress]::TryParse($ipAddress, [ref]$Ip))
+	[System.Net.IPAddress]::TryParse($ipAddress, [ref]$null)
 }	
 
 # -----------------------------------------------------------------------------
@@ -744,6 +765,19 @@ Function Add-ScanException ($errorObject, [string]$name) {
 }
 
 # -----------------------------------------------------------------------------
+# Function 		: Trace-ScanProgress
+# -----------------------------------------------------------------------------
+# Description	: Shows what the selection scan is doing in a folder and how
+#				  much it has selected so far (see Trace-Progress)
+# Parameters    : $folder             - The folder being scanned
+#                 [string]$operation  - What is being done
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Trace-ScanProgress ($folder, [string]$operation) {
+	Trace-Progress ("Folder {0}" -f $folder.RealName) $operation ("Selected {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3,0:n2} MBytes to backup" -f $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, ($Counters.BytesSelected / 1MB))
+}
+
+# -----------------------------------------------------------------------------
 # Function 		: ProcessFolder
 # -----------------------------------------------------------------------------
 # Description	: This is the main scanning/selection routine.
@@ -762,7 +796,7 @@ Function ProcessFolder ($thisFolder) {
 	$Counters.FoldersDone++
 	
 	# Status
-	Trace-Progress ("Folder {0}" -f $thisFolder.RealName) "Checking ... " ("Selected {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3,0:n2} MBytes to backup" -f  $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, ($Counters.BytesSelected / 1MB ))
+	Trace-ScanProgress $thisFolder "Checking ... "
 	
 	# Verify wether or not we have to scan this folder for files or stop recursion due to regexp or maxdepth reached
 	$scanThisPathForFiles = $True
@@ -770,7 +804,7 @@ Function ProcessFolder ($thisFolder) {
 	If(($matchcleanupdirs) -and ($thisFolder.RelativeName -imatch $matchcleanupdirs)) {
 		$scanThisPathForFiles = $False 
 		$scanThisPathForRecursion = $False
-		$folderToBeNuked = (Get-Item -LiteralPath $thisFolder.RelativeName -Force | Where-Object { $_.PSISContainer -eq $true -and -not ($_.Attributes -band 1024) })
+		$folderToBeNuked = (Get-Item -LiteralPath $thisFolder.RelativeName -Force | Where-Object { $_.PSISContainer -eq $true -and -not ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) })
 		If($folderToBeNuked) {
 			If(!$BkDryRun) {
 				Trace (" Removing D {0} " -f $thisFolder.RealName)
@@ -820,7 +854,7 @@ Function ProcessFolder ($thisFolder) {
 	
 	# Get-ChildItems in folder
 	# Status
-	Trace-Progress ("Folder {0}" -f $thisFolder.RealName) "Loading ... " ("Selected {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3,0:n2} MBytes to backup" -f  $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, ($Counters.BytesSelected / 1MB ))
+	Trace-ScanProgress $thisFolder "Loading ... "
 	
 	# DirectoryInfo, not Get-ChildItem (about 27 us per listed item). It needs a full path: the process
 	# directory is not the PowerShell location. An access error fails the whole folder, as before
@@ -833,7 +867,7 @@ Function ProcessFolder ($thisFolder) {
 	}
 
 	# Status
-	Trace-Progress ("Folder {0}" -f $thisFolder.RealName) "Scanning ... " ("Selected {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3,0:n2} MBytes to backup" -f  $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, ($Counters.BytesSelected / 1MB ))
+	Trace-ScanProgress $thisFolder "Scanning ... "
 	
 	# If it is an empty directory
 	If($scanThisPathForRecursion -and (!$childItems.Count) -and ($BkKeepEmptyDirs -eq $True) -and !($childItemsScanError)) {
@@ -857,116 +891,109 @@ Function ProcessFolder ($thisFolder) {
 	
 	# Process Files Within The Container
 	If($scanThisPathForFiles) {
-		$childFiles = @($childItems | Where-Object { $_ -is [System.IO.FileInfo] })
-		If($childFiles.Count) {
-			for ($i=0; $i -lt $childFiles.Count; $i++) {
-				
-				$Counters.FilesProcessed++
-				
-				$childFile = $childFiles[$i]
-				$childFileRealName = [System.IO.Path]::Combine($thisFolder.RealName, $childFile.Name)
+		foreach ($childFile in @($childItems | Where-Object { $_ -is [System.IO.FileInfo] })) {
+			
+			$Counters.FilesProcessed++
+			
+			$childFileRealName = [System.IO.Path]::Combine($thisFolder.RealName, $childFile.Name)
 
-				# >>> Clean up files ?
-				If(($matchcleanupfiles) -and ($childFile.Name -match $matchcleanupfiles)) {
-					If(!$BkDryRun) {
-						Trace (" Removing F {0} " -f $childFileRealName)
-						# File.Delete names the real error (Remove-Item in PowerShell 5.1 reports access denied as ArgumentException). It refuses read-only files
-						$childFileRemoveError = $null
-						Try {
-							If($childFile.Attributes -band [System.IO.FileAttributes]::ReadOnly) { $childFile.Attributes = $childFile.Attributes -bXOR [System.IO.FileAttributes]::ReadOnly }
-							[System.IO.File]::Delete($childFile.FullName)
-						} Catch { $childFileRemoveError = $_.Exception.GetBaseException() }
-						If($childFileRemoveError) {
-							Add-ScanException $childFileRemoveError $childFileRealName
-							continue
-						}
-					} Else {
-						Trace (" Would remove {0} " -f $childFileRealName)
+			# >>> Clean up files ?
+			If(($matchcleanupfiles) -and ($childFile.Name -match $matchcleanupfiles)) {
+				If(!$BkDryRun) {
+					Trace (" Removing F {0} " -f $childFileRealName)
+					# File.Delete names the real error (Remove-Item in PowerShell 5.1 reports access denied as ArgumentException). It refuses read-only files
+					$childFileRemoveError = $null
+					Try {
+						If($childFile.Attributes -band [System.IO.FileAttributes]::ReadOnly) { $childFile.Attributes = $childFile.Attributes -bXOR [System.IO.FileAttributes]::ReadOnly }
+						[System.IO.File]::Delete($childFile.FullName)
+					} Catch { $childFileRemoveError = $_.Exception.GetBaseException() }
+					If($childFileRemoveError) {
+						Add-ScanException $childFileRemoveError $childFileRealName
+						continue
 					}
-					# A cleaned up file must never be selected for the archive
-					continue
+				} Else {
+					Trace (" Would remove {0} " -f $childFileRealName)
 				}
-				# <<<
-
-				# Archive Attribute : is it set as we need it ?
-				If((($BkType -ieq "incr") -or ($BkType -ieq "diff")) -and !($childFile.Attributes -band 32)) { 
-					continue
-				}
-				
-				# Match Include ?
-				If(($matchincludefiles) -and ($childFile.Name -notmatch $matchincludefiles) ) { 
-					Add-Exclusion "matchincludefiles" "F" $childFileRealName
-					continue
-				}
-				
-				# Match Exclude ?
-				If(($matchexcludefiles) -and ($childFile.Name -match $matchexcludefiles) ) { 
-					Add-Exclusion "matchexcludefiles" "F" $childFileRealName
-					continue
-				}
-
-				# Check the file falls into MaxFileAge
-				If(($BkMaxFileAge) -and (($MyContext.SelectionStart - $childFile.LastWriteTime).TotalDays -gt $BkMaxFileAge) ) {
-					Add-Exclusion "maxfileage" "F" $childFileRealName
-					continue
-				}
-	
-				# Check the file falls into MinFileAge
-				If(($BkMinFileAge) -and (($MyContext.SelectionStart - $childFile.LastWriteTime).TotalDays -lt $BkMinFileAge) ) {
-					Add-Exclusion "minfileage" "F" $childFileRealName
-					continue
-				}
-
-				# Check the file falls into MaxFileSize
-				If(($BkMaxFileSize) -and ($childFile.Length -gt $BkMaxFileSize) ) {
-					Add-Exclusion "maxfilesize" "F" $childFileRealName
-					continue
-				}
-
-				# Check the file falls into MinFileSize
-				If(($BkMinFileSize) -and ($childFile.Length -lt $BkMinFileSize) ) {
-					Add-Exclusion "minfilesize" "F" $childFileRealName
-					continue
-				}
-
-				# Update counters
-				$Counters.FilesSelected++ ; 
-				$Counters.BytesSelected += $childFile.Length ;
-				$SWriters.Inclusions.WriteLine([System.IO.Path]::Combine($thisFolder.RelativeName, $childFile.Name))
-				# Selection statistics by extension: files and bytes
-				$extensionTotals = $Counters.Extensions[$childFile.Extension]
-				If($extensionTotals) { $extensionTotals[0]++; $extensionTotals[1] += $childFile.Length } Else { $Counters.Extensions[$childFile.Extension] = @(1, [int64]$childFile.Length) }
-				
-				
+				# A cleaned up file must never be selected for the archive
+				continue
 			}
+			# <<<
+
+			# Archive Attribute : is it set as we need it ?
+			If((($BkType -ieq "incr") -or ($BkType -ieq "diff")) -and !($childFile.Attributes -band [System.IO.FileAttributes]::Archive)) { 
+				continue
+			}
+			
+			# Match Include ?
+			If(($matchincludefiles) -and ($childFile.Name -notmatch $matchincludefiles) ) { 
+				Add-Exclusion "matchincludefiles" "F" $childFileRealName
+				continue
+			}
+			
+			# Match Exclude ?
+			If(($matchexcludefiles) -and ($childFile.Name -match $matchexcludefiles) ) { 
+				Add-Exclusion "matchexcludefiles" "F" $childFileRealName
+				continue
+			}
+
+			# Check the file falls into MaxFileAge
+			If(($BkMaxFileAge) -and (($MyContext.SelectionStart - $childFile.LastWriteTime).TotalDays -gt $BkMaxFileAge) ) {
+				Add-Exclusion "maxfileage" "F" $childFileRealName
+				continue
+			}
+
+			# Check the file falls into MinFileAge
+			If(($BkMinFileAge) -and (($MyContext.SelectionStart - $childFile.LastWriteTime).TotalDays -lt $BkMinFileAge) ) {
+				Add-Exclusion "minfileage" "F" $childFileRealName
+				continue
+			}
+
+			# Check the file falls into MaxFileSize
+			If(($BkMaxFileSize) -and ($childFile.Length -gt $BkMaxFileSize) ) {
+				Add-Exclusion "maxfilesize" "F" $childFileRealName
+				continue
+			}
+
+			# Check the file falls into MinFileSize
+			If(($BkMinFileSize) -and ($childFile.Length -lt $BkMinFileSize) ) {
+				Add-Exclusion "minfilesize" "F" $childFileRealName
+				continue
+			}
+
+			# Update counters
+			$Counters.FilesSelected++ ; 
+			$Counters.BytesSelected += $childFile.Length ;
+			$SWriters.Inclusions.WriteLine([System.IO.Path]::Combine($thisFolder.RelativeName, $childFile.Name))
+			# Selection statistics by extension: files and bytes
+			$extensionTotals = $Counters.Extensions[$childFile.Extension]
+			If($extensionTotals) { $extensionTotals[0]++; $extensionTotals[1] += $childFile.Length } Else { $Counters.Extensions[$childFile.Extension] = @(1, [int64]$childFile.Length) }
+			
+			
 		}
 	}
 	
 	# Process Directories Within The Container
 	If($scanThisPathForRecursion -And (!(Test-CtrlCRequest))) {
-		$childFolders = @($childItems | Where-Object { $_ -is [System.IO.DirectoryInfo] })
-		If($childFolders.Count) {
-			# Queue children right after this folder, in order. Skipped junctions take no slot
-			$insertAt = $catalogFoldersIndex + 1
-			for ($i=0; $i -lt $childFolders.Count; $i++) {
+		# Queue children right after this folder, in order. Skipped junctions take no slot
+		$insertAt = $catalogFoldersIndex + 1
+		foreach ($childFolder in @($childItems | Where-Object { $_ -is [System.IO.DirectoryInfo] })) {
 
-				$childFolderItem = @{}
-				$childFolderItem.Name = $childFolders[$i].Name
-				$childFolderItem.FullName = $childFolders[$i].FullName
-				# Built from the parent: FullName may differ in case from $BkRootDir (e.g. lowercase --workdrive)
-				$childFolderItem.RelativeName = $thisFolder.RelativeName + "\" + $childFolders[$i].Name
-				$childFolderItem.ContainerAlias = $thisFolder.ContainerAlias
-				$childFolderItem.RealName = Join-Path -Path $BkSources[$thisFolder.ContainerAlias] -ChildPath ($childFolderItem.RelativeName.Substring($thisFolder.ContainerAlias.Length))
-				$childFolderItem.Depth = ($thisFolder.Depth + 1);
-				
-				# Check subdir against recursion in junctions
-				If(($BkNoFollowJunctions) -and ($childFolders[$i].Attributes -band 1024)) {
-					Add-Exclusion "nofollowjunctions" "D" $childFolderItem.RealName
-					continue
-				}
-				
-				[void] $catalogFolders.Insert($insertAt++, $childFolderItem)
+			$childFolderItem = @{}
+			$childFolderItem.Name = $childFolder.Name
+			$childFolderItem.FullName = $childFolder.FullName
+			# Built from the parent: FullName may differ in case from $BkRootDir (e.g. lowercase --workdrive)
+			$childFolderItem.RelativeName = $thisFolder.RelativeName + "\" + $childFolder.Name
+			$childFolderItem.ContainerAlias = $thisFolder.ContainerAlias
+			$childFolderItem.RealName = Join-Path -Path $BkSources[$thisFolder.ContainerAlias] -ChildPath ($childFolderItem.RelativeName.Substring($thisFolder.ContainerAlias.Length))
+			$childFolderItem.Depth = ($thisFolder.Depth + 1);
+			
+			# Check subdir against recursion in junctions
+			If(($BkNoFollowJunctions) -and ($childFolder.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+				Add-Exclusion "nofollowjunctions" "D" $childFolderItem.RealName
+				continue
 			}
+			
+			[void] $catalogFolders.Insert($insertAt++, $childFolderItem)
 		}
 	}
 	
@@ -1014,7 +1041,7 @@ Function Remove-RootDir {
 	
 	If (Test-Path -Path $rootPath -PathType Container) {
 		Set-Variable -Name "junctionsRemoved" -Value $True -Scope Private | Out-Null
-		Get-ChildItem -Path $rootPath | Where-Object { $_.Attributes -band 1024 } | ForEach-Object {
+		Get-ChildItem -Path $rootPath | Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } | ForEach-Object {
 			If([int]$MyContext.WinVer[0] -lt 6) {
 				$junctionsRemoved = Remove-Junction $_.FullName
 				If(!$junctionsRemoved) {Return}
@@ -1139,11 +1166,9 @@ Function Send-MailKitNotification {
 	$body = New-Object MimeKit.BodyBuilder
 	$body.TextBody = $MyContext.Logger.ToString()
 	If ($BkNotifyExtra -ne "none") {
-		Get-ChildItem -Path $BkRootDir -Force | Where-Object {!$_.PSIsContainer} | ForEach-Object {
-			If(($_.Length -gt 0) -And ($_.Name -notmatch "stats") -And ($_.Name -notmatch "README")) {
-				If($BkNotifyExtra -ieq "attach") { [void]$body.Attachments.Add($_.FullName) }
-				Else { $body.TextBody += ("`n`n{0}`n" -f $_.Name) + (Get-Content $_) }
-			}
+		foreach ($file in Get-NotificationExtras) {
+			If($BkNotifyExtra -ieq "attach") { [void]$body.Attachments.Add($file.FullName) }
+			Else { $body.TextBody += ("`n`n{0}`n" -f $file.Name) + (Get-Content $file) }
 		}
 	}
 	$message.Body = $body.ToMessageBody()
@@ -1173,14 +1198,7 @@ Function Send-Notification {
 			[console]::TreatControlCAsInput = $True
 		} Catch {}
 		
-		# Ensure file stream writers are closed
-		$SWriters.GetEnumerator() | ForEach-Object {
-			Try {
-			$_.Value.Flush()
-			$_.Value.Close()
-			$_.Value.Dispose()
-			} Catch {}
-		}
+		Close-Writers
 
 		# Do nothing if we have no-one to notify
 		# Or we do not have enough info to issue the email
@@ -1191,8 +1209,7 @@ Function Send-Notification {
 		
 		Write-Host "`n Sending notification email ..."
 
-		$SmtpClient  = [Object]
-		$MailMessage = [Object]
+		$MailMessage = $null
 		
 		Try {
 		
@@ -1220,27 +1237,9 @@ Function Send-Notification {
 			If(($Counters.Criticals -gt 0)) { $MailMessage.Priority = [System.Net.Mail.MailPriority]::High; $BkMailSubject = "Critical ! $BkMailSubject" }
 			$MailMessage.From = $BkSmtpFrom
 			
-			If(($BkNotifyLog -is [array])) {
-				For ($x=0; $x -lt $BkNotifyLog.Length; $x++) { $MailMessage.To.Add($BkNotifyLog[$x]) }
-			} Else { 
-				$MailMessage.To.Add($BkNotifyLog) 
-			}
-			
-			If($BkNotifyLogCc) {
-			If(($BkNotifyLogCc -is [array])) {
-				For ($x=0; $x -lt $BkNotifyLogCc.Length; $x++) { $MailMessage.Cc.Add($BkNotifyLogCc[$x]) }
-			} Else { 
-				$MailMessage.Cc.Add($BkNotifyLogCc) 
-			}
-			}
-
-			If($BkNotifyLogBcc) {
-			If(($BkNotifyLogBcc -is [array])) {
-				For ($x=0; $x -lt $BkNotifyLogBcc.Length; $x++) { $MailMessage.Bcc.Add($BkNotifyLogBcc[$x]) }
-			} Else { 
-				$MailMessage.Bcc.Add($BkNotifyLogBcc) 
-			}
-			}
+			foreach ($address in @($BkNotifyLog)) { $MailMessage.To.Add($address) }
+			If($BkNotifyLogCc)  { foreach ($address in @($BkNotifyLogCc))  { $MailMessage.Cc.Add($address) } }
+			If($BkNotifyLogBcc) { foreach ($address in @($BkNotifyLogBcc)) { $MailMessage.Bcc.Add($address) } }
 
 			$MailMessage.Subject = $BkMailSubject
 			$MailMessage.Body = ($MyContext.Logger.ToString())
@@ -1248,20 +1247,14 @@ Function Send-Notification {
 			# Do we have to include extra informations ?
 			If ($BkNotifyExtra -ne "none") {
 
-				Get-ChildItem -Path $BkRootDir -Force | Where-Object {!$_.PSIsContainer} | ForEach-Object {
-					If(	
-						($_.Length -gt 0) -And
-						($_.Name -notmatch "stats") -And 
-						($_.Name -notmatch "README")
-					) {
-						If($BkNotifyExtra -ieq "attach") {
-							$MailAttachment = New-Object System.Net.Mail.Attachment($_.FullName)
-							$MailAttachment.Name = $_.Name
-							$MailMessage.Attachments.Add($MailAttachment)							
-						} Else {
-							$MailMessage.Body += ("`n`n{0}`n" -f $_.Name)
-							$MailMessage.Body += (Get-Content $_)
-						}
+				foreach ($file in Get-NotificationExtras) {
+					If($BkNotifyExtra -ieq "attach") {
+						$MailAttachment = New-Object System.Net.Mail.Attachment($file.FullName)
+						$MailAttachment.Name = $file.Name
+						$MailMessage.Attachments.Add($MailAttachment)
+					} Else {
+						$MailMessage.Body += ("`n`n{0}`n" -f $file.Name)
+						$MailMessage.Body += (Get-Content $file)
 					}
 				}
 				
@@ -1277,7 +1270,7 @@ Function Send-Notification {
 			}
 			
 		Finally {
-			If ($MailMessage.GetType().Name -ieq "MailMessage") { $MailMessage.Dispose() }
+			If ($MailMessage) { $MailMessage.Dispose() }
 		}
 
 }
