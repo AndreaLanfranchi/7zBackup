@@ -1565,6 +1565,35 @@ Function Read-SelectionDirectives ([string[]]$lines) {
 }
 
 # -----------------------------------------------------------------------------
+# Function 		: Read-MatchRule
+# -----------------------------------------------------------------------------
+# Description	: Reads the "name=regex" lines of the selection file into the
+#				  script variable "name": all regexes joined by "|". The
+#				  criteria are written to the log
+# Parameters    : [string[]]$lines - The selection file lines (no comments)
+#                 [string]$name - The rule name, also the variable name
+#                 [string]$title - The log title
+#                 [string]$bullet - The text before each regex in the log
+#                 [string]$footer - The log text after the regexes
+#                 [string]$emptyText - The log text when there is no regex
+#                 [switch]$Always - Log the title also when there is no line
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Read-MatchRule ([string[]]$lines, [string]$name, [string]$title, [string]$bullet, [string]$footer, [string]$emptyText, [switch]$Always) {
+	$prefix = "$name="
+	$rules = @($lines | Where-Object { $_.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
+	If(!$rules -and !$Always) { Return }
+
+	Trace "`n $title"
+	Trace " ------------------------------------------------------------------------------"
+	$regexes = @($rules | ForEach-Object { $_.Substring($prefix.Length).Trim() } | Where-Object { $_ })
+	$regexes | ForEach-Object { Trace "$bullet$_" }
+	If($regexes) { Set-Variable -Name $name -Value ($regexes -join "|") -Scope Script }
+	ElseIf($emptyText) { Trace $emptyText }
+	If($footer) { Trace "`n $footer" }
+}
+
+# -----------------------------------------------------------------------------
 # Function 		: Assert-Arguments
 # -----------------------------------------------------------------------------
 # Description	: This function is used to check input arguments
@@ -2148,53 +2177,11 @@ If(( $BkSources.Count -eq 0 )) {
 }
 
 # --------------------------------------------------------------------
-# Check we have an cleanup criteria on directories
+# Read the regular expression criteria
 # --------------------------------------------------------------------
-If($BkSelectionContents | Where-Object {$_ -match "^matchcleanupdirs="}) {
-
-	Trace " Remove Directories Criteria"
-	Trace " ------------------------------------------------------------------------------"
-	$BkSelectionContents | Where-Object {$_ -match "^matchcleanupdirs="} | ForEach-Object {
-		$line = $_.Substring($_.IndexOf("=") + 1).Trim()
-		If(($line)) {
-			Trace " + Regex : $line"
-			If(!($matchcleanupdirs)) { $matchcleanupdirs = $line } Else { $matchcleanupdirs += ("|" + $line) }
-		}
-	}
-	Trace "`n All directories matching the above listed regular expressions will be deleted !!!`n"
-}
-
-
-# --------------------------------------------------------------------
-# Check we have an cleanup criteria on file names
-# --------------------------------------------------------------------
-If($BkSelectionContents | Where-Object {$_ -match "^matchcleanupfiles="}) {
-
-	Trace " Remove Files Criteria"
-	Trace " ------------------------------------------------------------------------------"
-	$BkSelectionContents | Where-Object {$_ -match "^matchcleanupfiles="} | ForEach-Object {
-		$line = $_.Substring($_.IndexOf("=") + 1).Trim()
-		If(($line)) {
-			Trace " + Regex : $line"
-			If(!($matchcleanupfiles)) { $matchcleanupfiles = $line } Else { $matchcleanupfiles += ("|" + $line) }
-		}
-	}
-	Trace "`n All files matching the above listed regular expressions will be deleted !!!"
-}
-
-# --------------------------------------------------------------------
-# Check we have an exclude criteria on file names
-# --------------------------------------------------------------------
-Trace "`n Files Inclusion Criteria "
-Trace " ------------------------------------------------------------------------------"
-$BkSelectionContents | Where-Object {$_ -match "^matchincludefiles="} | ForEach-Object {
-	$line = $_.Substring($_.IndexOf("=") + 1)
-	If(($line)) {
-		Trace " + Regex : $line"
-		If(!($matchincludefiles)) { $matchincludefiles = $line } Else { $matchincludefiles += ("|" + $line) }
-	}
-}
-If(!($matchincludefiles)) { Trace " + Any file name " }
+Read-MatchRule $BkSelectionContents "matchcleanupdirs" "Remove Directories Criteria" " + Regex : " "All directories matching the above listed regular expressions will be deleted !!!"
+Read-MatchRule $BkSelectionContents "matchcleanupfiles" "Remove Files Criteria" " + Regex : " "All files matching the above listed regular expressions will be deleted !!!"
+Read-MatchRule $BkSelectionContents "matchincludefiles" "Files Inclusion Criteria" " + Regex : " "" " + Any file name " -Always
 
 # --------------------------------------------------------------------
 # Check we have max/min fileage to honor
@@ -2208,55 +2195,9 @@ If (Test-Variable "BkMinFileAge") { Trace " + Min File Age : $BkMinFileAge days"
 If (Test-Variable "BkMaxFileSize") { Trace " + Max File Size : $BkMaxFileSize bytes" }
 If (Test-Variable "BkMinFileSize") { Trace " + Min File Size : $BkMinFileSize bytes" }
 
-# --------------------------------------------------------------------
-# Check we have an exclude criteria on file names
-# --------------------------------------------------------------------
-If($BkSelectionContents | Where-Object {$_ -match "^matchexcludefiles="}) {
-	Trace "`n Files Exclusion Criteria "
-	Trace " ------------------------------------------------------------------------------"
-	$BkSelectionContents | Where-Object {$_ -match "^matchexcludefiles="} | ForEach-Object {
-		$line = $_.Substring($_.IndexOf("=") + 1).Trim()
-		If(($line)) {
-			Trace " - Regex : $line"
-			If(!($matchexcludefiles)) { $matchexcludefiles = $line } Else { $matchexcludefiles += ("|" + $line) }
-		}
-	}
-	If(!($matchexcludefiles)) { Trace " None " }
-	Trace "`n All files matching the above listed regular expressions `n WILL NOT BE INCLUDED IN BACKUP !!!"
-}
-
-# --------------------------------------------------------------------
-# Check we have an exclude criteria on paths
-# --------------------------------------------------------------------
-If($BkSelectionContents | Where-Object {$_ -match "^matchexcludepath="}) {
-	Trace "`n Exclude Paths Criteria "
-	Trace " ------------------------------------------------------------------------------"
-	$BkSelectionContents | Where-Object {$_ -match "^matchexcludepath="} | ForEach-Object {
-		$line = $_.Substring($_.IndexOf("=") + 1).Trim()
-		If(($line)) {
-			Trace " -match $line"
-			If(!($matchexcludepath)) { $matchexcludepath = $line } Else { $matchexcludepath += ("|" + $line) }
-		}
-	}
-	If(!($matchexcludepath))  { Trace " None "}
-	Trace "`n All directories matching the above listed regular expressions `n WILL NOT BE INCLUDED IN BACKUP !!!"
-}
-# --------------------------------------------------------------------
-# Check we have any rule to stop digging into directories
-# --------------------------------------------------------------------
-If($BkSelectionContents | Where-Object {$_ -match "^matchstoprecurse="}) {
-	Trace "`n Stop Recursion Criteria "
-	Trace " ------------------------------------------------------------------------------"
-	$BkSelectionContents | Where-Object {$_ -match "^matchstoprecurse="} | ForEach-Object {
-		$line = $_.Substring($_.IndexOf("=") + 1).Trim()
-		If(($line)) {
-			Trace " -match $line"
-			If(!($matchstoprecurse)) { $matchstoprecurse = $line } Else { $matchstoprecurse += ("|" + $line) }
-		}
-	}
-	If(!($matchstoprecurse))  { Trace " None " }
-	Trace "`n All directories matching the above listed regular expressions `n WILL NOT BE RECURSED !!!"
-}
+Read-MatchRule $BkSelectionContents "matchexcludefiles" "Files Exclusion Criteria" " - Regex : " "All files matching the above listed regular expressions `n WILL NOT BE INCLUDED IN BACKUP !!!" " None "
+Read-MatchRule $BkSelectionContents "matchexcludepath" "Exclude Paths Criteria" " -match " "All directories matching the above listed regular expressions `n WILL NOT BE INCLUDED IN BACKUP !!!" " None "
+Read-MatchRule $BkSelectionContents "matchstoprecurse" "Stop Recursion Criteria" " -match " "All directories matching the above listed regular expressions `n WILL NOT BE RECURSED !!!" " None "
 
 # --------------------------------------------------------------------
 # Move to the $BkRootDir and make it current
