@@ -1668,6 +1668,8 @@ Function Assert-Variables {
 		Write-Output  "Missing or invalid --type argument"
 	} Else {
 		Set-DefaultVariable "BkClearBit" $clearBitDefaults[[string]$BkType]
+		# The archive name is built from it: --type FULL gives the same name as --type full
+		Set-Variable -Name BkType -Value ([string]$BkType).ToLower() -Scope Script
 	}
 
 	# --------------------------------------------------------------------------------------------------------------------------
