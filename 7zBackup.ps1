@@ -1434,6 +1434,59 @@ Function Trace-Progress ([string]$activity, [string]$operation, [string]$status)
 }
 
 # -----------------------------------------------------------------------------
+# Function 		: ConvertTo-Limit
+# -----------------------------------------------------------------------------
+# Description	: Reads a size or age limit as its absolute value, always with
+#				  en-US number format (the selection file uses "." for decimals)
+# Parameters    : $value - The text to convert
+#                 [bool]$integer - $True for an int64 size, $False for a double age
+# Returns       : The number, or $null when the text is not valid
+# -----------------------------------------------------------------------------
+Function ConvertTo-Limit ($value, [bool]$integer) {
+	$culture = [System.Globalization.CultureInfo]::CreateSpecificCulture("en-US")
+	If($integer) { $number = [int64]0; $valid = [int64]::TryParse($value, [System.Globalization.NumberStyles]::Number, $culture, [ref]$number) }
+	Else { $number = [double]0; $valid = [double]::TryParse($value, [System.Globalization.NumberStyles]::AllowDecimalPoint, $culture, [ref]$number) }
+	If($valid) { [Math]::Abs($number) }
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Read-SelectionDirectives
+# -----------------------------------------------------------------------------
+# Description	: Applies the "name=value" and flag directives of the selection
+#				  file. They take precedence over command line values. When a
+#				  directive is repeated the last one wins
+# Parameters    : [string[]]$lines - The selection file lines (no comments)
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Read-SelectionDirectives ([string[]]$lines) {
+	# Valid: pattern the value must match. Decimal: "," is accepted as decimal separator
+	$valueDirectives = @{
+		maxdepth    = @{ Variable = "BkMaxDepth";           Valid = "^[0-9]" }
+		rotate      = @{ Variable = "BkRotate";             Valid = "^[0-9]" }
+		prefix      = @{ Variable = "BkArchivePrefix" }
+		maxfilesize = @{ Variable = "BkMaxFileSize";        Valid = "^\d"; Decimal = $True }
+		minfilesize = @{ Variable = "BkMinFileSize";        Valid = "^\d"; Decimal = $True }
+		maxfileage  = @{ Variable = "BkMaxFileAge";         Valid = "^\d"; Decimal = $True }
+		minfileage  = @{ Variable = "BkMinFileAge";         Valid = "^\d"; Decimal = $True }
+		compression = @{ Variable = "BkArchiveCompression"; Valid = "^\d"; Decimal = $True }
+		threads     = @{ Variable = "BkArchiveThreads";     Valid = "^\d"; Decimal = $True }
+		solid       = @{ Variable = "BkArchiveSolid";       Valid = "^[01]$"; Convert = { $args[0] -eq "1" } }   # solid=0 turns it off, solid=1 on
+	}
+	$flagDirectives = @{ emptydirs = "BkKeepEmptyDirs"; nofollowjunctions = "BkNoFollowJunctions" }
+
+	foreach ($line in $lines) {
+		If($flagDirectives.ContainsKey($line)) { Set-Variable -Name $flagDirectives[$line] -Value $True -Scope Script; continue }
+		If($line -notmatch "^(?<name>[^=]+)=(?<value>.*)$") { continue }
+		$directive = $valueDirectives[$Matches.name]
+		$value = $Matches.value
+		If(!$directive -or ($directive.Valid -and ($value -notmatch $directive.Valid))) { continue }
+		If($directive.Decimal) { $value = $value.Replace(",", ".") }
+		If($directive.Convert) { $value = & $directive.Convert $value }
+		Set-Variable -Name $directive.Variable -Value $value -Scope Script
+	}
+}
+
+# -----------------------------------------------------------------------------
 # Function 		: Assert-Arguments
 # -----------------------------------------------------------------------------
 # Description	: This function is used to check input arguments
@@ -1592,40 +1645,7 @@ Function Assert-Variables {
 		Else 
 		{
 				
-			# Look whether selection contents holds specific 7zip switches to use. (REMOVED)
-			#$BkSelectionContents | Where-Object {$_ -match "^useswitches=*"} | ForEach-Object { Set-Variable -name "Bk7ZipSwitches" -value ($_.Substring($_.IndexOf("=") + 1)) -scope Script }
-
-			# Look whether selection contents holds specific maxdepth value to use.
-			$BkSelectionContents | Where-Object {$_ -match "^maxdepth=[0-9]"} | ForEach-Object { Set-Variable -name "BkMaxDepth" -value ($_.Substring($_.IndexOf("=") + 1)) -scope Script }
-			
-			# Look whether selection contents holds specific rotate value to use.
-			$BkSelectionContents | Where-Object {$_ -match "^rotate=[0-9]"} | ForEach-Object { Set-Variable -name "BkRotate" -value ($_.Substring($_.IndexOf("=") + 1)) -scope Script }
-			
-			# Look whether selection contents holds specific prefix value to use.
-			$BkSelectionContents | Where-Object {$_ -match "^prefix="} | ForEach-Object { Set-Variable -name "BkArchivePrefix" -value ($_.Substring($_.IndexOf("=") + 1)) -scope Script }
-
-			# Look whether selection contents sets the keeping of empty dirs.
-			$BkSelectionContents | Where-Object {$_ -match "^emptydirs$"} | ForEach-Object { Set-Variable -name "BkKeepEmptyDirs" -value $True -scope Script }
-
-			# Look whether selection contents sets following of junctions
-			$BkSelectionContents | Where-Object {$_ -match "^nofollowjunctions$"} | ForEach-Object { Set-Variable -name "BkNoFollowJunctions" -value $True -scope Script }
-			
-			# Look whether selection contents sets max/min file sizes
-			$BkSelectionContents | Where-Object {$_ -match "^maxfilesize=\d+"} | Select-Object @{Name="Value";Expression={$_.Substring($_.IndexOf("=") + 1).Replace(",",".")}} | ForEach-Object {Set-Variable -Name "BkMaxFileSize" -Value $_.Value -Scope Script}
-			$BkSelectionContents | Where-Object {$_ -match "^minfilesize=\d+"} | Select-Object @{Name="Value";Expression={$_.Substring($_.IndexOf("=") + 1).Replace(",",".")}} | ForEach-Object {Set-Variable -Name "BkMinFileSize" -Value $_.Value -Scope Script}
-
-			# Look whether selection contents sets max/min file ages
-			$BkSelectionContents | Where-Object {$_ -match "^maxfileage=\d+((\,|\.)\d+)?"} | Select-Object @{Name="Value";Expression={$_.Substring($_.IndexOf("=") + 1).Replace(",",".")}} | ForEach-Object {Set-Variable -Name "BkMaxFileAge" -Value $_.Value -Scope Script}
-			$BkSelectionContents | Where-Object {$_ -match "^minfileage=\d+((\,|\.)\d+)?"} | Select-Object @{Name="Value";Expression={$_.Substring($_.IndexOf("=") + 1).Replace(",",".")}} | ForEach-Object {Set-Variable -Name "BkMinFileAge" -Value $_.Value -Scope Script}
-			
-			# Look for compression
-			$BkSelectionContents | Where-Object {$_ -match "^compression=\d+"} | Select-Object @{Name="Value";Expression={$_.Substring($_.IndexOf("=") + 1).Replace(",",".")}} | ForEach-Object {Set-Variable -Name "BkArchiveCompression" -Value $_.Value -Scope Script}
-
-			# Look for threads
-			$BkSelectionContents | Where-Object {$_ -match "^threads=\d+"} | Select-Object @{Name="Value";Expression={$_.Substring($_.IndexOf("=") + 1).Replace(",",".")}} | ForEach-Object {Set-Variable -Name "BkArchiveThreads" -Value $_.Value -Scope Script}
-			
-			# Look for Solid mode: solid=0 turns it off, solid=1 on
-			$BkSelectionContents | Where-Object {$_ -match "^solid=[01]$"} | Select-Object @{Name="Value";Expression={$_.Substring($_.IndexOf("=") + 1) -eq "1"}} | ForEach-Object {Set-Variable -Name "BkArchiveSolid" -Value $_.Value -Scope Script}
+			Read-SelectionDirectives $BkSelectionContents
 
 		}
 	}
@@ -1634,49 +1654,19 @@ Function Assert-Variables {
 	# Directives - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
 	
-	If (Test-Variable "BkMaxFileSize") {
-		Set-Variable -Name "i" -Value ([int64]0) -Scope Local
-		If(([system.int64]::tryparse($BkMaxFileSize, [System.Globalization.NumberStyles]::Number, [System.Globalization.CultureInfo]::CreateSpecificCulture("en-US") ,[ref]$i))) { 
-			Set-Variable -Name "BkMaxFileSize" -Value ([Math]::Abs($i)) -Scope Script
-		} Else {
-			Write-Output "Missing or invalid maxfilesize directive. Must be an integer"
-		}
-		Remove-Variable -Name "i"
+	# Size and age limits: positive numbers; zero turns the filter off
+	foreach ($limit in @(
+		@{ Name = "maxfilesize"; Variable = "BkMaxFileSize"; Integer = $True;  Expected = "an integer" },
+		@{ Name = "minfilesize"; Variable = "BkMinFileSize"; Integer = $True;  Expected = "an integer" },
+		@{ Name = "maxfileage";  Variable = "BkMaxFileAge";  Integer = $False; Expected = "a valid number" },
+		@{ Name = "minfileage";  Variable = "BkMinFileAge";  Integer = $False; Expected = "a valid number" }
+	)) {
+		If(!(Test-Variable $limit.Variable)) { continue }
+		$number = ConvertTo-Limit (Get-Variable -Name $limit.Variable -Scope Script -ValueOnly) $limit.Integer
+		If($null -eq $number) { Write-Output ("Missing or invalid {0} directive. Must be {1}" -f $limit.Name, $limit.Expected) }
+		Else { Set-Variable -Name $limit.Variable -Value $number -Scope Script }
+		If(!((Get-Variable -Name $limit.Variable -Scope Script -ValueOnly) -gt 0)) { Remove-Variable -Name $limit.Variable -Scope Script }
 	}
-	If (Test-Variable "BkMinFileSize") {
-		Set-Variable -Name "i" -Value ([int64]0) -Scope Local
-		If(([system.int64]::tryparse($BkMinFileSize, [System.Globalization.NumberStyles]::Number, [System.Globalization.CultureInfo]::CreateSpecificCulture("en-US") ,[ref]$i))) { 
-			Set-Variable -Name "BkMinFileSize" -Value ([Math]::Abs($i)) -Scope Script
-		} Else {
-			Write-Output "Missing or invalid minfilesize directive. Must be an integer"
-		}
-		Remove-Variable -Name "i"
-	}
-	If((Test-Variable "BkMaxFileSize") -And !($BkMaxFileSize -gt 0)) { Remove-Variable -Name "BkMaxFileSize" -Scope Script }
-	If((Test-Variable "BkMinFileSize") -And !($BkMinFileSize -gt 0)) { Remove-Variable -Name "BkMinFileSize" -Scope Script }
-
-	If (Test-Variable "BkMaxFileAge") {
-		Set-Variable -Name "d" -Value ([double]0) -Scope Local
-		If(([system.Double]::tryparse($BkMaxFileAge, [System.Globalization.NumberStyles]::AllowDecimalPoint, [System.Globalization.CultureInfo]::CreateSpecificCulture("en-US") ,[ref]$d))) { 
-			Set-Variable -Name "BkMaxFileAge" -Value ([Math]::Abs($d)) -Scope Script
-		} Else {
-			Write-Output "Missing or invalid maxfileage directive. Must be a valid number"
-		}
-		Remove-Variable -Name "d"
-	}
-	
-	If (Test-Variable "BkMinFileAge") {
-		Set-Variable -Name "d" -Value ([double]0) -Scope Local
-		If(([system.Double]::tryparse($BkMinFileAge, [System.Globalization.NumberStyles]::AllowDecimalPoint, [System.Globalization.CultureInfo]::CreateSpecificCulture("en-US") ,[ref]$d))) { 
-			Set-Variable -Name "BkMinFileAge" -Value ([Math]::Abs($d)) -Scope Script
-		} Else {
-			Write-Output "Missing or invalid minfileage directive. Must be a valid number"
-		}
-		Remove-Variable -Name "d"
-	}
-	
-	If((Test-Variable "BkMaxFileAge") -And !($BkMaxFileAge -gt 0)) { Remove-Variable -Name "BkMaxFileAge" -Scope Script }
-	If((Test-Variable "BkMinFileAge") -And !($BkMinFileAge -gt 0)) { Remove-Variable -Name "BkMinFileAge" -Scope Script }
 	
 	
 	# --------------------------------------------------------------------------------------------------------------------------
