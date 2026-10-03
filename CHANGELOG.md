@@ -5,6 +5,7 @@ Ui (user interface). Some old entries use Minor or New, or have no category.
 
 ## Unreleased
 
+- Code: The 7-Zip exit codes 255, 2, 7 and 8 are handled from one table, and rotation counts the first archive part with one regex
 - Code: The 7-Zip argument list is built with fewer lines and the duplicated -bd is gone (same command line, now covered by a test)
 - Code: GetDestPathFreeSpace uses GetPathRoot for local and network paths, and the redundant Test-FsAttribute is removed (Test-Path already checks file and folder)
 - Code: Test-Lock reads the lock file lines into a table instead of three pattern tests

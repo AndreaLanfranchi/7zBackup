@@ -45,6 +45,23 @@ Assert (!(Test-Path -LiteralPath (Join-Path $work $oldArchive))) "old archive of
 Assert (Test-Path -LiteralPath (Join-Path $work $otherArchive))  "archive of job 'backupsrv' is not touched"
 Assert (Test-Path -LiteralPath (Join-Path $work $renamedCopy))   "renamed copy '*.7z.bak' is not touched"
 
+Write-Host "`n Case: volumes count as one archive (rotate 2)"
+$volWork = Join-Path $work "vol"
+New-Item -ItemType Directory $volWork -Force | Out-Null
+$volNew = "srv-full-20260103-120000.7z"
+foreach ($name in "$volNew.001", "$volNew.002", "$volNew.003", "srv-full-20260102-120000.7z.001", "srv-full-20260102-120000.7z.002", "srv-full-20260101-120000.7z.001", "srv-full-20260101-120000.7z.002") {
+	Set-Content -LiteralPath (Join-Path $volWork $name) -Value $name
+}
+$BkDestPath    = $volWork
+$BkArchiveName = $volNew
+$BkRotate      = 2
+$MyContext     = [hashtable]::Synchronized(@{ Logger = (New-Object System.Text.StringBuilder) })
+. ([scriptblock]::Create($rotationBlock.Extent.Text))
+Assert ((Test-Path -LiteralPath "$volWork\$volNew.003"))                               "all parts of the new archive are kept"
+Assert ((Test-Path -LiteralPath "$volWork\srv-full-20260102-120000.7z.002"))           "all parts of the previous archive are kept"
+Assert (!(Test-Path -LiteralPath "$volWork\srv-full-20260101-120000.7z.001"))          "first part of the oldest archive is removed"
+Assert (!(Test-Path -LiteralPath "$volWork\srv-full-20260101-120000.7z.002"))          "second part of the oldest archive is removed"
+
 Remove-Item -LiteralPath $work -Recurse -Force
 
 Write-Host ""

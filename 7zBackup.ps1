@@ -2538,9 +2538,7 @@ public class SevenZipOutput {
 							}
 							
 							# Check is volumized archive
-							If ( (($_.Name -match "(.*)(7z|zip|tar)\.\d{3}$") -and ($_.Name.EndsWith("001"))) -or ($_.Name -match "(.*)(7z|zip|tar)$") ) {
-								$BkRotate += -1
-							} 
+							If ($_.Name -match "\.(7z|zip|tar)(\.001)?$") { $BkRotate += -1 }
 							
 						} Else {
 							Remove-Item -LiteralPath (Join-Path $BkDestPath $_.Name) -ErrorAction "SilentlyContinue" | Out-Null
@@ -2577,30 +2575,16 @@ public class SevenZipOutput {
 			# 7   - Command line error
 			# 8   - Not Enough memory to complete operation
 			# 255 - User stopped the process
-			If (($Bk7ZipRetc -eq 255)) {
-				$Counters.Criticals += 1
-				Trace " " 
-				Trace " Cancelled ! User has stopped 7-Zip archiving process" 
-				Trace " NO ARCHIVE HAS BEEN CREATED" 
-				If(Test-Path -Path $BkDestFile -PathType Leaf) { Remove-Item -LiteralPath $BkDestFile -Force | Out-Null }
-			} ElseIf (($Bk7ZipRetc -eq 2)) {
-				$Counters.Criticals += 1
-				Trace " " 
-				Trace " Cancelled ! 7-Zip reported a fatal error." 
-				Trace " NO VALID ARCHIVE HAS BEEN CREATED"
-				If(Test-Path -Path $BkDestFile -PathType Leaf) { Remove-Item -LiteralPath $BkDestFile -Force | Out-Null }
-			} ElseIf (($Bk7ZipRetc -eq 7)) {
-				$Counters.Criticals += 1
-				Trace " " 
-				Trace " Cancelled ! 7-Zip has been invoked with a wrong command line." 
-				Trace (" {0}" -f $oProcessStartInfo.Arguments) 
-				Trace " NO VALID ARCHIVE HAS BEEN CREATED" 
-				If(Test-Path -Path $BkDestFile -PathType Leaf) { Remove-Item -LiteralPath $BkDestFile -Force | Out-Null }
-			} ElseIf (($Bk7ZipRetc -eq 8)) {
+			$fatalMessages = @{
+				255 = @(" Cancelled ! User has stopped 7-Zip archiving process", " NO ARCHIVE HAS BEEN CREATED")
+				2   = @(" Cancelled ! 7-Zip reported a fatal error.", " NO VALID ARCHIVE HAS BEEN CREATED")
+				7   = @(" Cancelled ! 7-Zip has been invoked with a wrong command line.", (" {0}" -f $oProcessStartInfo.Arguments), " NO VALID ARCHIVE HAS BEEN CREATED")
+				8   = @(" Cancelled ! 7-Zip reports not enough memory.", " NO VALID ARCHIVE HAS BEEN CREATED")
+			}
+			If ($fatalMessages.ContainsKey([int]$Bk7ZipRetc)) {
 				$Counters.Criticals += 1
 				Trace " "
-				Trace " Cancelled ! 7-Zip reports not enough memory." 
-				Trace " NO VALID ARCHIVE HAS BEEN CREATED" 
+				$fatalMessages[[int]$Bk7ZipRetc] | ForEach-Object { Trace $_ }
 				If(Test-Path -Path $BkDestFile -PathType Leaf) { Remove-Item -LiteralPath $BkDestFile -Force | Out-Null }
 			} ElseIf (!(Test-Path -Path "$BkDestPath\$BkArchiveName" -PathType Leaf)) {
 				$Counters.Criticals += 1
