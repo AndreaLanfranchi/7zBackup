@@ -29,7 +29,7 @@ Function Get-LoopCommands ([string]$function, [type]$loopType, [string]$headerTe
 }
 
 Write-Host "`n Case: ProcessFolder, loop over the files of a folder"
-$commands = Get-LoopCommands "ProcessFolder" ([System.Management.Automation.Language.ForStatementAst]) '$childFiles.Count'
+$commands = Get-LoopCommands "ProcessFolder" ([System.Management.Automation.Language.ForEachStatementAst]) '[System.IO.FileInfo]'
 Assert ($null -ne $commands)                                              "precondition, loop found"
 Assert (@($commands | Where-Object { $_ -eq "Join-Path" }).Count -eq 0)   "no Join-Path per file [$(($commands | Sort-Object -Unique) -join ', ')]"
 Assert (@($commands | Where-Object { $_ -eq "New-Timespan" }).Count -eq 0) "no New-Timespan per file [$(($commands | Sort-Object -Unique) -join ', ')]"

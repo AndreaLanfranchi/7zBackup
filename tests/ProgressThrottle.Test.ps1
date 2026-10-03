@@ -40,11 +40,15 @@ Start-Sleep -Milliseconds 600
 Trace-Progress "Folder x" "Checking ... " "Selected 1 file"
 Assert ($ProgressCalls -eq 2) "one write before and one after the wait [$ProgressCalls]"
 
-Write-Host "`n Case: ProcessFolder goes through Trace-Progress"
+Write-Host "`n Case: ProcessFolder goes through Trace-Progress (via Trace-ScanProgress)"
 $processFolder = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq "ProcessFolder" }, $False)[0]
 $commands = @($processFolder.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $True) | ForEach-Object { $_.GetCommandName() })
 Assert (@($commands | Where-Object { $_ -eq "Write-Progress" }).Count -eq 0) "ProcessFolder calls no Write-Progress directly"
-Assert (@($commands | Where-Object { $_ -eq "Trace-Progress" }).Count -ge 1) "ProcessFolder calls Trace-Progress"
+Assert (@($commands | Where-Object { $_ -eq "Trace-ScanProgress" }).Count -ge 1) "ProcessFolder calls Trace-ScanProgress"
+$scanProgress = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq "Trace-ScanProgress" }, $False)[0]
+$scanCommands = @($scanProgress.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $True) | ForEach-Object { $_.GetCommandName() })
+Assert (@($scanCommands | Where-Object { $_ -eq "Write-Progress" }).Count -eq 0) "Trace-ScanProgress calls no Write-Progress directly"
+Assert (@($scanCommands | Where-Object { $_ -eq "Trace-Progress" }).Count -ge 1) "Trace-ScanProgress calls Trace-Progress"
 
 Write-Host ""
 If($Failures -gt 0) { Write-Host " $Failures assertion(s) failed" -ForegroundColor Red; exit 1 }
