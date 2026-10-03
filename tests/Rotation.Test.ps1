@@ -57,6 +57,7 @@ $BkArchiveName = $volNew
 $BkRotate      = 2
 $MyContext     = [hashtable]::Synchronized(@{ Logger = (New-Object System.Text.StringBuilder) })
 . ([scriptblock]::Create($rotationBlock.Extent.Text))
+Assert (@($MyContext.Logger.ToString().Split("`n") | Where-Object { $_ -match "^ New " }).Count -eq 3) "the 3 parts of the new archive are labelled New"
 Assert ((Test-Path -LiteralPath "$volWork\$volNew.003"))                               "all parts of the new archive are kept"
 Assert ((Test-Path -LiteralPath "$volWork\srv-full-20260102-120000.7z.002"))           "all parts of the previous archive are kept"
 Assert (!(Test-Path -LiteralPath "$volWork\srv-full-20260101-120000.7z.001"))          "first part of the oldest archive is removed"
