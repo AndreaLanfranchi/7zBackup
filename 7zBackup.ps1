@@ -366,9 +366,38 @@ Function Test-FsAttribute {
     param([string]$itemFullName = $(throw "You must provide an item name"),
 	      [string]$attrName = $(throw "You must provide an attribute name"))
 
-	$item = Get-Item -literalPath $itemFullName -Force 
-	Write-Output (($?) -and ($item) -and ($item.Attributes -band [System.IO.FileAttributes]::$attrName))
+	$item = Get-Item -LiteralPath $itemFullName -Force
+	[bool]($item -and ($item.Attributes -band [System.IO.FileAttributes]::$attrName))
 } 
+
+# -----------------------------------------------------------------------------
+# Function 		: Close-Writers
+# -----------------------------------------------------------------------------
+# Description	: Flushes and closes the file stream writers of the script
+# Parameters    : -
+# Returns       : Nothing
+# -----------------------------------------------------------------------------
+Function Close-Writers {
+	$SWriters.GetEnumerator() | ForEach-Object {
+		Try {
+			$_.Value.Flush()
+			$_.Value.Close()
+			$_.Value.Dispose()
+		} Catch {}
+	}
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Get-NotificationExtras
+# -----------------------------------------------------------------------------
+# Description	: Lists the report files of the run which a notification email
+#				  can carry along (not empty, no stats, no README)
+# Parameters    : -
+# Returns       : The files
+# -----------------------------------------------------------------------------
+Function Get-NotificationExtras {
+	Get-ChildItem -Path $BkRootDir -Force | Where-Object { !$_.PSIsContainer -and ($_.Length -gt 0) -and ($_.Name -notmatch "stats|README") }
+}
 
 # -----------------------------------------------------------------------------
 # Function 		: Clear-Script
@@ -380,14 +409,7 @@ Function Test-FsAttribute {
 # -----------------------------------------------------------------------------
 Function Clear-Script {
 
-	#Ensure file stream writers are closed
-	$SWriters.GetEnumerator() | ForEach-Object {
-		Try {
-		$_.Value.Flush()
-		$_.Value.Close()
-		$_.Value.Dispose()
-		} Catch {}
-	}
+	Close-Writers
 
 	
 	# Only the run that created the lock may remove it
@@ -412,7 +434,7 @@ Function Clear-Script {
 # -----------------------------------------------------------------------------
 Function IsValidEmailAddress { 
 	param([string]$emailAddress = $(throw "You must provide an address"))
-	Write-Output ($emailAddress -match "^[a-zA-Z0-9]([\w\.+-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([\w\.-]*[a-zA-Z0-9])?\.[a-zA-Z][a-zA-Z\.]*[a-zA-Z]$")
+	$emailAddress -match "^[a-zA-Z0-9]([\w\.+-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([\w\.-]*[a-zA-Z0-9])?\.[a-zA-Z][a-zA-Z\.]*[a-zA-Z]$"
 }	
 
 # -----------------------------------------------------------------------------
@@ -425,7 +447,7 @@ Function IsValidEmailAddress {
 # -----------------------------------------------------------------------------
 Function IsValidHostName { 
 	param([string]$hostName = $(throw "You must provide an host name"))
-	Write-Output ($hostName -match "^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z]|[A-Za-z][A-Za-z0-9\-]*[A-Za-z0-9])$")
+	$hostName -match "^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z]|[A-Za-z][A-Za-z0-9\-]*[A-Za-z0-9])$"
 }	
 
 # -----------------------------------------------------------------------------
@@ -464,8 +486,7 @@ Function GetDestPathFreeSpace {
 # -----------------------------------------------------------------------------
 Function IsValidIPAddress { 
 	param([string]$ipAddress = $(throw "You must provide an address"))
-	Set-Variable -name "Ip" -value ([System.Net.IPAddress]::Parse("127.0.0.1")) -scope Local
-	Write-Output ([System.Net.IPAddress]::TryParse($ipAddress, [ref]$Ip))
+	[System.Net.IPAddress]::TryParse($ipAddress, [ref]$null)
 }	
 
 # -----------------------------------------------------------------------------
@@ -744,6 +765,19 @@ Function Add-ScanException ($errorObject, [string]$name) {
 }
 
 # -----------------------------------------------------------------------------
+# Function 		: Trace-ScanProgress
+# -----------------------------------------------------------------------------
+# Description	: Shows what the selection scan is doing in a folder and how
+#				  much it has selected so far (see Trace-Progress)
+# Parameters    : $folder             - The folder being scanned
+#                 [string]$operation  - What is being done
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Trace-ScanProgress ($folder, [string]$operation) {
+	Trace-Progress ("Folder {0}" -f $folder.RealName) $operation ("Selected {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3,0:n2} MBytes to backup" -f $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, ($Counters.BytesSelected / 1MB))
+}
+
+# -----------------------------------------------------------------------------
 # Function 		: ProcessFolder
 # -----------------------------------------------------------------------------
 # Description	: This is the main scanning/selection routine.
@@ -762,7 +796,7 @@ Function ProcessFolder ($thisFolder) {
 	$Counters.FoldersDone++
 	
 	# Status
-	Trace-Progress ("Folder {0}" -f $thisFolder.RealName) "Checking ... " ("Selected {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3,0:n2} MBytes to backup" -f  $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, ($Counters.BytesSelected / 1MB ))
+	Trace-ScanProgress $thisFolder "Checking ... "
 	
 	# Verify wether or not we have to scan this folder for files or stop recursion due to regexp or maxdepth reached
 	$scanThisPathForFiles = $True
@@ -770,7 +804,7 @@ Function ProcessFolder ($thisFolder) {
 	If(($matchcleanupdirs) -and ($thisFolder.RelativeName -imatch $matchcleanupdirs)) {
 		$scanThisPathForFiles = $False 
 		$scanThisPathForRecursion = $False
-		$folderToBeNuked = (Get-Item -LiteralPath $thisFolder.RelativeName -Force | Where-Object { $_.PSISContainer -eq $true -and -not ($_.Attributes -band 1024) })
+		$folderToBeNuked = (Get-Item -LiteralPath $thisFolder.RelativeName -Force | Where-Object { $_.PSISContainer -eq $true -and -not ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) })
 		If($folderToBeNuked) {
 			If(!$BkDryRun) {
 				Trace (" Removing D {0} " -f $thisFolder.RealName)
@@ -820,7 +854,7 @@ Function ProcessFolder ($thisFolder) {
 	
 	# Get-ChildItems in folder
 	# Status
-	Trace-Progress ("Folder {0}" -f $thisFolder.RealName) "Loading ... " ("Selected {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3,0:n2} MBytes to backup" -f  $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, ($Counters.BytesSelected / 1MB ))
+	Trace-ScanProgress $thisFolder "Loading ... "
 	
 	# DirectoryInfo, not Get-ChildItem (about 27 us per listed item). It needs a full path: the process
 	# directory is not the PowerShell location. An access error fails the whole folder, as before
@@ -833,7 +867,7 @@ Function ProcessFolder ($thisFolder) {
 	}
 
 	# Status
-	Trace-Progress ("Folder {0}" -f $thisFolder.RealName) "Scanning ... " ("Selected {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3,0:n2} MBytes to backup" -f  $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, ($Counters.BytesSelected / 1MB ))
+	Trace-ScanProgress $thisFolder "Scanning ... "
 	
 	# If it is an empty directory
 	If($scanThisPathForRecursion -and (!$childItems.Count) -and ($BkKeepEmptyDirs -eq $True) -and !($childItemsScanError)) {
@@ -857,116 +891,109 @@ Function ProcessFolder ($thisFolder) {
 	
 	# Process Files Within The Container
 	If($scanThisPathForFiles) {
-		$childFiles = @($childItems | Where-Object { $_ -is [System.IO.FileInfo] })
-		If($childFiles.Count) {
-			for ($i=0; $i -lt $childFiles.Count; $i++) {
-				
-				$Counters.FilesProcessed++
-				
-				$childFile = $childFiles[$i]
-				$childFileRealName = [System.IO.Path]::Combine($thisFolder.RealName, $childFile.Name)
+		foreach ($childFile in @($childItems | Where-Object { $_ -is [System.IO.FileInfo] })) {
+			
+			$Counters.FilesProcessed++
+			
+			$childFileRealName = [System.IO.Path]::Combine($thisFolder.RealName, $childFile.Name)
 
-				# >>> Clean up files ?
-				If(($matchcleanupfiles) -and ($childFile.Name -match $matchcleanupfiles)) {
-					If(!$BkDryRun) {
-						Trace (" Removing F {0} " -f $childFileRealName)
-						# File.Delete names the real error (Remove-Item in PowerShell 5.1 reports access denied as ArgumentException). It refuses read-only files
-						$childFileRemoveError = $null
-						Try {
-							If($childFile.Attributes -band [System.IO.FileAttributes]::ReadOnly) { $childFile.Attributes = $childFile.Attributes -bXOR [System.IO.FileAttributes]::ReadOnly }
-							[System.IO.File]::Delete($childFile.FullName)
-						} Catch { $childFileRemoveError = $_.Exception.GetBaseException() }
-						If($childFileRemoveError) {
-							Add-ScanException $childFileRemoveError $childFileRealName
-							continue
-						}
-					} Else {
-						Trace (" Would remove {0} " -f $childFileRealName)
+			# >>> Clean up files ?
+			If(($matchcleanupfiles) -and ($childFile.Name -match $matchcleanupfiles)) {
+				If(!$BkDryRun) {
+					Trace (" Removing F {0} " -f $childFileRealName)
+					# File.Delete names the real error (Remove-Item in PowerShell 5.1 reports access denied as ArgumentException). It refuses read-only files
+					$childFileRemoveError = $null
+					Try {
+						If($childFile.Attributes -band [System.IO.FileAttributes]::ReadOnly) { $childFile.Attributes = $childFile.Attributes -bXOR [System.IO.FileAttributes]::ReadOnly }
+						[System.IO.File]::Delete($childFile.FullName)
+					} Catch { $childFileRemoveError = $_.Exception.GetBaseException() }
+					If($childFileRemoveError) {
+						Add-ScanException $childFileRemoveError $childFileRealName
+						continue
 					}
-					# A cleaned up file must never be selected for the archive
-					continue
+				} Else {
+					Trace (" Would remove {0} " -f $childFileRealName)
 				}
-				# <<<
-
-				# Archive Attribute : is it set as we need it ?
-				If((($BkType -ieq "incr") -or ($BkType -ieq "diff")) -and !($childFile.Attributes -band 32)) { 
-					continue
-				}
-				
-				# Match Include ?
-				If(($matchincludefiles) -and ($childFile.Name -notmatch $matchincludefiles) ) { 
-					Add-Exclusion "matchincludefiles" "F" $childFileRealName
-					continue
-				}
-				
-				# Match Exclude ?
-				If(($matchexcludefiles) -and ($childFile.Name -match $matchexcludefiles) ) { 
-					Add-Exclusion "matchexcludefiles" "F" $childFileRealName
-					continue
-				}
-
-				# Check the file falls into MaxFileAge
-				If(($BkMaxFileAge) -and (($MyContext.SelectionStart - $childFile.LastWriteTime).TotalDays -gt $BkMaxFileAge) ) {
-					Add-Exclusion "maxfileage" "F" $childFileRealName
-					continue
-				}
-	
-				# Check the file falls into MinFileAge
-				If(($BkMinFileAge) -and (($MyContext.SelectionStart - $childFile.LastWriteTime).TotalDays -lt $BkMinFileAge) ) {
-					Add-Exclusion "minfileage" "F" $childFileRealName
-					continue
-				}
-
-				# Check the file falls into MaxFileSize
-				If(($BkMaxFileSize) -and ($childFile.Length -gt $BkMaxFileSize) ) {
-					Add-Exclusion "maxfilesize" "F" $childFileRealName
-					continue
-				}
-
-				# Check the file falls into MinFileSize
-				If(($BkMinFileSize) -and ($childFile.Length -lt $BkMinFileSize) ) {
-					Add-Exclusion "minfilesize" "F" $childFileRealName
-					continue
-				}
-
-				# Update counters
-				$Counters.FilesSelected++ ; 
-				$Counters.BytesSelected += $childFile.Length ;
-				$SWriters.Inclusions.WriteLine([System.IO.Path]::Combine($thisFolder.RelativeName, $childFile.Name))
-				# Selection statistics by extension: files and bytes
-				$extensionTotals = $Counters.Extensions[$childFile.Extension]
-				If($extensionTotals) { $extensionTotals[0]++; $extensionTotals[1] += $childFile.Length } Else { $Counters.Extensions[$childFile.Extension] = @(1, [int64]$childFile.Length) }
-				
-				
+				# A cleaned up file must never be selected for the archive
+				continue
 			}
+			# <<<
+
+			# Archive Attribute : is it set as we need it ?
+			If((($BkType -ieq "incr") -or ($BkType -ieq "diff")) -and !($childFile.Attributes -band [System.IO.FileAttributes]::Archive)) { 
+				continue
+			}
+			
+			# Match Include ?
+			If(($matchincludefiles) -and ($childFile.Name -notmatch $matchincludefiles) ) { 
+				Add-Exclusion "matchincludefiles" "F" $childFileRealName
+				continue
+			}
+			
+			# Match Exclude ?
+			If(($matchexcludefiles) -and ($childFile.Name -match $matchexcludefiles) ) { 
+				Add-Exclusion "matchexcludefiles" "F" $childFileRealName
+				continue
+			}
+
+			# Check the file falls into MaxFileAge
+			If(($BkMaxFileAge) -and (($MyContext.SelectionStart - $childFile.LastWriteTime).TotalDays -gt $BkMaxFileAge) ) {
+				Add-Exclusion "maxfileage" "F" $childFileRealName
+				continue
+			}
+
+			# Check the file falls into MinFileAge
+			If(($BkMinFileAge) -and (($MyContext.SelectionStart - $childFile.LastWriteTime).TotalDays -lt $BkMinFileAge) ) {
+				Add-Exclusion "minfileage" "F" $childFileRealName
+				continue
+			}
+
+			# Check the file falls into MaxFileSize
+			If(($BkMaxFileSize) -and ($childFile.Length -gt $BkMaxFileSize) ) {
+				Add-Exclusion "maxfilesize" "F" $childFileRealName
+				continue
+			}
+
+			# Check the file falls into MinFileSize
+			If(($BkMinFileSize) -and ($childFile.Length -lt $BkMinFileSize) ) {
+				Add-Exclusion "minfilesize" "F" $childFileRealName
+				continue
+			}
+
+			# Update counters
+			$Counters.FilesSelected++ ; 
+			$Counters.BytesSelected += $childFile.Length ;
+			$SWriters.Inclusions.WriteLine([System.IO.Path]::Combine($thisFolder.RelativeName, $childFile.Name))
+			# Selection statistics by extension: files and bytes
+			$extensionTotals = $Counters.Extensions[$childFile.Extension]
+			If($extensionTotals) { $extensionTotals[0]++; $extensionTotals[1] += $childFile.Length } Else { $Counters.Extensions[$childFile.Extension] = @(1, [int64]$childFile.Length) }
+			
+			
 		}
 	}
 	
 	# Process Directories Within The Container
 	If($scanThisPathForRecursion -And (!(Test-CtrlCRequest))) {
-		$childFolders = @($childItems | Where-Object { $_ -is [System.IO.DirectoryInfo] })
-		If($childFolders.Count) {
-			# Queue children right after this folder, in order. Skipped junctions take no slot
-			$insertAt = $catalogFoldersIndex + 1
-			for ($i=0; $i -lt $childFolders.Count; $i++) {
+		# Queue children right after this folder, in order. Skipped junctions take no slot
+		$insertAt = $catalogFoldersIndex + 1
+		foreach ($childFolder in @($childItems | Where-Object { $_ -is [System.IO.DirectoryInfo] })) {
 
-				$childFolderItem = @{}
-				$childFolderItem.Name = $childFolders[$i].Name
-				$childFolderItem.FullName = $childFolders[$i].FullName
-				# Built from the parent: FullName may differ in case from $BkRootDir (e.g. lowercase --workdrive)
-				$childFolderItem.RelativeName = $thisFolder.RelativeName + "\" + $childFolders[$i].Name
-				$childFolderItem.ContainerAlias = $thisFolder.ContainerAlias
-				$childFolderItem.RealName = Join-Path -Path $BkSources[$thisFolder.ContainerAlias] -ChildPath ($childFolderItem.RelativeName.Substring($thisFolder.ContainerAlias.Length))
-				$childFolderItem.Depth = ($thisFolder.Depth + 1);
-				
-				# Check subdir against recursion in junctions
-				If(($BkNoFollowJunctions) -and ($childFolders[$i].Attributes -band 1024)) {
-					Add-Exclusion "nofollowjunctions" "D" $childFolderItem.RealName
-					continue
-				}
-				
-				[void] $catalogFolders.Insert($insertAt++, $childFolderItem)
+			$childFolderItem = @{}
+			$childFolderItem.Name = $childFolder.Name
+			$childFolderItem.FullName = $childFolder.FullName
+			# Built from the parent: FullName may differ in case from $BkRootDir (e.g. lowercase --workdrive)
+			$childFolderItem.RelativeName = $thisFolder.RelativeName + "\" + $childFolder.Name
+			$childFolderItem.ContainerAlias = $thisFolder.ContainerAlias
+			$childFolderItem.RealName = Join-Path -Path $BkSources[$thisFolder.ContainerAlias] -ChildPath ($childFolderItem.RelativeName.Substring($thisFolder.ContainerAlias.Length))
+			$childFolderItem.Depth = ($thisFolder.Depth + 1);
+			
+			# Check subdir against recursion in junctions
+			If(($BkNoFollowJunctions) -and ($childFolder.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+				Add-Exclusion "nofollowjunctions" "D" $childFolderItem.RealName
+				continue
 			}
+			
+			[void] $catalogFolders.Insert($insertAt++, $childFolderItem)
 		}
 	}
 	
@@ -1014,7 +1041,7 @@ Function Remove-RootDir {
 	
 	If (Test-Path -Path $rootPath -PathType Container) {
 		Set-Variable -Name "junctionsRemoved" -Value $True -Scope Private | Out-Null
-		Get-ChildItem -Path $rootPath | Where-Object { $_.Attributes -band 1024 } | ForEach-Object {
+		Get-ChildItem -Path $rootPath | Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } | ForEach-Object {
 			If([int]$MyContext.WinVer[0] -lt 6) {
 				$junctionsRemoved = Remove-Junction $_.FullName
 				If(!$junctionsRemoved) {Return}
@@ -1139,11 +1166,9 @@ Function Send-MailKitNotification {
 	$body = New-Object MimeKit.BodyBuilder
 	$body.TextBody = $MyContext.Logger.ToString()
 	If ($BkNotifyExtra -ne "none") {
-		Get-ChildItem -Path $BkRootDir -Force | Where-Object {!$_.PSIsContainer} | ForEach-Object {
-			If(($_.Length -gt 0) -And ($_.Name -notmatch "stats") -And ($_.Name -notmatch "README")) {
-				If($BkNotifyExtra -ieq "attach") { [void]$body.Attachments.Add($_.FullName) }
-				Else { $body.TextBody += ("`n`n{0}`n" -f $_.Name) + (Get-Content $_) }
-			}
+		foreach ($file in Get-NotificationExtras) {
+			If($BkNotifyExtra -ieq "attach") { [void]$body.Attachments.Add($file.FullName) }
+			Else { $body.TextBody += ("`n`n{0}`n" -f $file.Name) + (Get-Content $file) }
 		}
 	}
 	$message.Body = $body.ToMessageBody()
@@ -1173,14 +1198,7 @@ Function Send-Notification {
 			[console]::TreatControlCAsInput = $True
 		} Catch {}
 		
-		# Ensure file stream writers are closed
-		$SWriters.GetEnumerator() | ForEach-Object {
-			Try {
-			$_.Value.Flush()
-			$_.Value.Close()
-			$_.Value.Dispose()
-			} Catch {}
-		}
+		Close-Writers
 
 		# Do nothing if we have no-one to notify
 		# Or we do not have enough info to issue the email
@@ -1191,12 +1209,11 @@ Function Send-Notification {
 		
 		Write-Host "`n Sending notification email ..."
 
-		$SmtpClient  = [Object]
-		$MailMessage = [Object]
+		$MailMessage = $null
 		
 		Try {
 		
-			If(!(Test-Variable "BkMailSubject")) { Set-Variable -name "BkMailSubject" -value ("7zBackup Report Host $Env:ComputerName") -scope Script }
+			Set-DefaultVariable "BkMailSubject" ("7zBackup Report Host $Env:ComputerName")
 			If(Test-Variable "BkMailKitPath") {
 				Send-MailKitNotification
 				Write-Host " Done`n " -ForeGroundColor Green
@@ -1220,27 +1237,9 @@ Function Send-Notification {
 			If(($Counters.Criticals -gt 0)) { $MailMessage.Priority = [System.Net.Mail.MailPriority]::High; $BkMailSubject = "Critical ! $BkMailSubject" }
 			$MailMessage.From = $BkSmtpFrom
 			
-			If(($BkNotifyLog -is [array])) {
-				For ($x=0; $x -lt $BkNotifyLog.Length; $x++) { $MailMessage.To.Add($BkNotifyLog[$x]) }
-			} Else { 
-				$MailMessage.To.Add($BkNotifyLog) 
-			}
-			
-			If($BkNotifyLogCc) {
-			If(($BkNotifyLogCc -is [array])) {
-				For ($x=0; $x -lt $BkNotifyLogCc.Length; $x++) { $MailMessage.Cc.Add($BkNotifyLogCc[$x]) }
-			} Else { 
-				$MailMessage.Cc.Add($BkNotifyLogCc) 
-			}
-			}
-
-			If($BkNotifyLogBcc) {
-			If(($BkNotifyLogBcc -is [array])) {
-				For ($x=0; $x -lt $BkNotifyLogBcc.Length; $x++) { $MailMessage.Bcc.Add($BkNotifyLogBcc[$x]) }
-			} Else { 
-				$MailMessage.Bcc.Add($BkNotifyLogBcc) 
-			}
-			}
+			foreach ($address in @($BkNotifyLog)) { $MailMessage.To.Add($address) }
+			If($BkNotifyLogCc)  { foreach ($address in @($BkNotifyLogCc))  { $MailMessage.Cc.Add($address) } }
+			If($BkNotifyLogBcc) { foreach ($address in @($BkNotifyLogBcc)) { $MailMessage.Bcc.Add($address) } }
 
 			$MailMessage.Subject = $BkMailSubject
 			$MailMessage.Body = ($MyContext.Logger.ToString())
@@ -1248,20 +1247,14 @@ Function Send-Notification {
 			# Do we have to include extra informations ?
 			If ($BkNotifyExtra -ne "none") {
 
-				Get-ChildItem -Path $BkRootDir -Force | Where-Object {!$_.PSIsContainer} | ForEach-Object {
-					If(	
-						($_.Length -gt 0) -And
-						($_.Name -notmatch "stats") -And 
-						($_.Name -notmatch "README")
-					) {
-						If($BkNotifyExtra -ieq "attach") {
-							$MailAttachment = New-Object System.Net.Mail.Attachment($_.FullName)
-							$MailAttachment.Name = $_.Name
-							$MailMessage.Attachments.Add($MailAttachment)							
-						} Else {
-							$MailMessage.Body += ("`n`n{0}`n" -f $_.Name)
-							$MailMessage.Body += (Get-Content $_)
-						}
+				foreach ($file in Get-NotificationExtras) {
+					If($BkNotifyExtra -ieq "attach") {
+						$MailAttachment = New-Object System.Net.Mail.Attachment($file.FullName)
+						$MailAttachment.Name = $file.Name
+						$MailMessage.Attachments.Add($MailAttachment)
+					} Else {
+						$MailMessage.Body += ("`n`n{0}`n" -f $file.Name)
+						$MailMessage.Body += (Get-Content $file)
 					}
 				}
 				
@@ -1277,7 +1270,7 @@ Function Send-Notification {
 			}
 			
 		Finally {
-			If ($MailMessage.GetType().Name -ieq "MailMessage") { $MailMessage.Dispose() }
+			If ($MailMessage) { $MailMessage.Dispose() }
 		}
 
 }
@@ -1401,8 +1394,93 @@ Function Test-Path-Writable {
 # -----------------------------------------------------------------------------
 Function Test-Variable { 
 	param([string]$varName = $(throw "You must provide a variable name"))
-	Get-Variable -name $varName -scope Script | Out-Null
-	Write-Output $?
+	$null -ne (Get-Variable -Name $varName -Scope Script -ErrorAction SilentlyContinue)
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Set-DefaultVariable
+# -----------------------------------------------------------------------------
+# Description	: Sets a script variable unless it has already been set
+# Parameters    : [string]$name - The name of the variable
+#                 $value        - The default value
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Set-DefaultVariable ([string]$name, $value) {
+	If(!(Test-Variable $name)) { Set-Variable -Name $name -Value $value -Scope Script }
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Resolve-Choice
+# -----------------------------------------------------------------------------
+# Description	: Finds a value among the allowed ones, ignoring case
+# Parameters    : [string]$value     - The value to look for
+#                 [string[]]$choices - The allowed values
+# Returns       : The allowed value as spelled in $choices, or $null
+# -----------------------------------------------------------------------------
+Function Resolve-Choice ([string]$value, [string[]]$choices) {
+	$choices | Where-Object { $_ -ieq $value } | Select-Object -First 1
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Resolve-BooleanVariable
+# -----------------------------------------------------------------------------
+# Description	: Turns a script variable, if set, into a boolean. When it is
+#				  not a valid boolean the variable is removed
+# Parameters    : [string]$name         - The name of the variable
+#                 [string]$errorMessage - What to report when it is not valid
+# Returns       : The error message if any
+# -----------------------------------------------------------------------------
+Function Resolve-BooleanVariable ([string]$name, [string]$errorMessage) {
+	If(!(Test-Variable $name)) { Return }
+	$boolean = $False
+	If([bool]::TryParse((Get-Variable -Name $name -Scope Script -ValueOnly), [ref]$boolean)) {
+		Set-Variable -Name $name -Value $boolean -Scope Script
+	} Else {
+		Write-Output $errorMessage
+		Remove-Variable -Name $name -Scope Script
+	}
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Resolve-IntegerVariable
+# -----------------------------------------------------------------------------
+# Description	: Turns a script variable, if set, into an integer within the
+#				  given range. When it is not valid the variable is removed
+# Parameters    : [string]$name         - The name of the variable
+#                 [int64]$minimum       - Lowest valid value
+#                 [int64]$maximum       - Highest valid value
+#                 [string]$errorMessage - What to report when it is not valid
+# Returns       : The error message if any
+# -----------------------------------------------------------------------------
+Function Resolve-IntegerVariable ([string]$name, [int64]$minimum, [int64]$maximum, [string]$errorMessage) {
+	If(!(Test-Variable $name)) { Return }
+	$number = [int64]0
+	$valid = [int64]::TryParse((Get-Variable -Name $name -Scope Script -ValueOnly), [ref]$number)
+	If($valid) {
+		Set-Variable -Name $name -Value $number -Scope Script
+		$valid = ($number -ge $minimum) -and ($number -le $maximum)
+	}
+	If(!$valid) {
+		Write-Output $errorMessage
+		Remove-Variable -Name $name -Scope Script
+	}
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Resolve-AddressList
+# -----------------------------------------------------------------------------
+# Description	: Keeps the valid email addresses of a script variable (a
+#				  single address or a list). Invalid ones are reported as
+#				  warnings. When none is left the variable is removed
+# Parameters    : [string]$name  - The name of the variable
+#                 [string]$label - The command line argument it comes from
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Resolve-AddressList ([string]$name, [string]$label) {
+	$addresses = @((Get-Variable -Name $name -Scope Script -ErrorAction SilentlyContinue).Value)
+	$addresses | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid {0} address {1} ignored" -f $label, $_); $Counters.Warnings++ }
+	$valid = @($addresses | Where-Object {IsValidEmailAddress $_})
+	If($valid.Count -gt 0) { Set-Variable -Name $name -Value $valid -Scope Script } Else { Remove-Variable -Name $name -Scope Script -ErrorAction SilentlyContinue }
 }
 
 # -----------------------------------------------------------------------------
@@ -1495,58 +1573,65 @@ Function Read-SelectionDirectives ([string[]]$lines) {
 # -----------------------------------------------------------------------------
 Function Assert-Arguments {
 
-	If($BkArguments.length -ne 0) {
-		$i = 0
-		do {
-			switch ($BkArguments[$i]) { 
-				"--type"            { Set-Variable -name BkType -value $BkArguments[++$i] -scope Script }
-				"--workdir"         { Set-Variable -name BkWorkDir -value $BkArguments[++$i] -scope Script }
-				"--workdrive"       { Set-Variable -name BkWorkDrive -value $BkArguments[++$i] -scope Script }
-				"--selection"       { Set-Variable -name BkSelection -value $BkArguments[++$i] -scope Script }
-				"--destpath"        { Set-Variable -name BkDestPath -value $BkArguments[++$i] -scope Script }
-				"--archiveprefix"   { Set-Variable -name BkArchivePrefix -value $BkArguments[++$i] -scope Script }
-				"--prefix"          { Set-Variable -name BkArchivePrefix -value $BkArguments[++$i] -scope Script }
-				"--archivetype"     { Set-Variable -name BkArchiveType -value $BkArguments[++$i] -scope Script }
-				"--compression"     { Set-Variable -name BkArchiveCompression -value $BkArguments[++$i] -scope Script }
-				"--threads"         { Set-Variable -name BkArchiveThreads -value $BkArguments[++$i] -scope Script }
-				"--solid"           { Set-Variable -name BkArchiveSolid -value $BkArguments[++$i] -scope Script }
-				"--volumes"         { Set-Variable -name BkArchiveVolumes -value $BkArguments[++$i] -scope Script }
-				"--archivepassword" { Set-Variable -name BkArchivePassword -value $BkArguments[++$i] -scope Script }
-				"--password"        { Set-Variable -name BkArchivePassword -value $BkArguments[++$i] -scope Script }
-				"--encryptheaders"  { Set-Variable -name BkEncryptHeaders -value $True -scope Script }
-				"--rotate"          { Set-Variable -name BkRotate -value $BkArguments[++$i] -scope Script }
-				"--emptydirs"       { Set-Variable -name BkKeepEmptyDirs -value $True -scope Script }
-				"--maxdepth"        { Set-Variable -name BkMaxDepth -value $BkArguments[++$i] -scope Script }
-				"--maxfileage"      { Set-Variable -name BkMaxFileAge -value $BkArguments[++$i] -scope Script }		
-				"--minfileage"      { Set-Variable -name BkMinFileAge -value $BkArguments[++$i] -scope Script }				
-				"--maxfilesize"     { Set-Variable -name BkMaxFileSize -value $BkArguments[++$i] -scope Script }		
-				"--minfilesize"     { Set-Variable -name BkMinFileSize -value $BkArguments[++$i] -scope Script }				
-				"--clearbit"        { Set-Variable -name BkClearBit -value $BkArguments[++$i] -scope Script }
-				"--logfile"         { Set-Variable -name BkLogFile -value $BkArguments[++$i] -scope Script ; Remove-Variable -name BkLogFile -scope Script }
-				"--notify"          { Set-Variable -name BkNotifyLog -value $BkArguments[++$i] -scope Script }
-				"--notifyto"        { Set-Variable -name BkNotifyLog -value $BkArguments[++$i] -scope Script }
-				"--notifytoCc"      { Set-Variable -name BkNotifyLogCc -value $BkArguments[++$i] -scope Script }
-				"--notifytoBcc"     { Set-Variable -name BkNotifyLogBcc -value $BkArguments[++$i] -scope Script }
-				"--notifyfrom"      { Set-Variable -name BkSmtpFrom -value $BkArguments[++$i] -scope Script }
-				"--notifyextra"     { Set-Variable -name BkNotifyExtra -value $BkArguments[++$i] -scope Script }		
-				"--smtpserver"      { Set-Variable -name BkSmtpRelay -value $BkArguments[++$i] -scope Script }
-				"--smtpport"        { Set-Variable -name BkSmtpPort -value $BkArguments[++$i] -scope Script }
-				"--smtpuser"        { Set-Variable -name BkSmtpUser -value $BkArguments[++$i] -scope Script }
-				"--smtppass"        { Set-Variable -name BkSmtpPass -value $BkArguments[++$i] -scope Script }
-				"--smtpssl"         { Set-Variable -name BkSmtpSSL -value $True -scope Script }
-				"--mailkitpath"     { Set-Variable -name BkMailKitPath -value $BkArguments[++$i] -scope Script }
-				"--7zbin"           { Set-Variable -name Bk7ZipBin -value $BkArguments[++$i] -scope Script }
-				"--7zipbin"         { Set-Variable -name Bk7ZipBin -value $BkArguments[++$i] -scope Script }
-				"--jbin"            { Set-Variable -name BkJunctionBin -value $BkArguments[++$i] -scope Script }
-				"--dry"             { Set-Variable -name BkDryRun -value $True -scope Script }
-				"--pre"             { Set-Variable -name BkPreAction -value $BkArguments[++$i] -scope Script }
-				"--post"            { Set-Variable -name BkPostAction -value $BkArguments[++$i] -scope Script }
-				
-				Default { Write-Output ("Unknown argument {0}" -f $BkArguments[$i]) }
-			}
+	# Options followed by a value: argument -> variable ($null: value accepted and ignored)
+	$valueArguments = @{
+		'--type'             = 'BkType'
+		'--workdir'          = 'BkWorkDir'
+		'--workdrive'        = 'BkWorkDrive'
+		'--selection'        = 'BkSelection'
+		'--destpath'         = 'BkDestPath'
+		'--archiveprefix'    = 'BkArchivePrefix'
+		'--prefix'           = 'BkArchivePrefix'
+		'--archivetype'      = 'BkArchiveType'
+		'--compression'      = 'BkArchiveCompression'
+		'--threads'          = 'BkArchiveThreads'
+		'--solid'            = 'BkArchiveSolid'
+		'--volumes'          = 'BkArchiveVolumes'
+		'--archivepassword'  = 'BkArchivePassword'
+		'--password'         = 'BkArchivePassword'
+		'--rotate'           = 'BkRotate'
+		'--maxdepth'         = 'BkMaxDepth'
+		'--maxfileage'       = 'BkMaxFileAge'
+		'--minfileage'       = 'BkMinFileAge'
+		'--maxfilesize'      = 'BkMaxFileSize'
+		'--minfilesize'      = 'BkMinFileSize'
+		'--clearbit'         = 'BkClearBit'
+		'--logfile'          = $null
+		'--notify'           = 'BkNotifyLog'
+		'--notifyto'         = 'BkNotifyLog'
+		'--notifytoCc'       = 'BkNotifyLogCc'
+		'--notifytoBcc'      = 'BkNotifyLogBcc'
+		'--notifyfrom'       = 'BkSmtpFrom'
+		'--notifyextra'      = 'BkNotifyExtra'
+		'--smtpserver'       = 'BkSmtpRelay'
+		'--smtpport'         = 'BkSmtpPort'
+		'--smtpuser'         = 'BkSmtpUser'
+		'--smtppass'         = 'BkSmtpPass'
+		'--mailkitpath'      = 'BkMailKitPath'
+		'--7zbin'            = 'Bk7ZipBin'
+		'--7zipbin'          = 'Bk7ZipBin'
+		'--jbin'             = 'BkJunctionBin'
+		'--pre'              = 'BkPreAction'
+		'--post'             = 'BkPostAction'
+	}
+	# Switches without a value: argument -> variable set to $True
+	$switchArguments = @{
+		'--encryptheaders'  = 'BkEncryptHeaders'
+		'--emptydirs'       = 'BkKeepEmptyDirs'
+		'--smtpssl'         = 'BkSmtpSSL'
+		'--dry'             = 'BkDryRun'
+	}
+
+	for ($i = 0; $i -lt $BkArguments.Length; $i++) {
+		$argument = [string]$BkArguments[$i]
+		If($switchArguments.ContainsKey($argument)) {
+			Set-Variable -Name $switchArguments[$argument] -Value $True -Scope Script
+		} ElseIf($valueArguments.ContainsKey($argument)) {
 			$i++
+			If($valueArguments[$argument]) { Set-Variable -Name $valueArguments[$argument] -Value $BkArguments[$i] -Scope Script }
+		} Else {
+			Write-Output ("Unknown argument {0}" -f $argument)
 		}
-		while ($i -lt $BkArguments.length)
 	}
 }
 
@@ -1572,31 +1657,19 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Clear Archive Bit Policy - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
-	If((Test-Variable "BkClearBit") -eq $True) {
-		Set-Variable -name b -value $True -scope Local
-		If([system.boolean]::tryparse($BkClearBit,[ref]$b)) {
-			Set-Variable -name BkClearBit -value $b -scope Script
-		} Else {
-			Write-Output "Value $BkClearBit for --clearbit argument is not valid boolean value."
-			Remove-Variable -name BkClearBit -scope Script
-		}
-		Remove-Variable -name b -scope Local
-	}
+	Resolve-BooleanVariable "BkClearBit" "Value $BkClearBit for --clearbit argument is not valid boolean value."
 	
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Backup Type - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
-	If(!(Test-Variable "BkType")) {
+	# Each backup type clears the archive bit by default, or not
+	$clearBitDefaults = @{ full = $True; incr = $True; diff = $False; copy = $False; move = $False }
+	If(!(Test-Variable "BkType") -Or !$clearBitDefaults.ContainsKey([string]$BkType)) {
 		Write-Output  "Missing or invalid --type argument"
 	} Else {
-		Switch ($BkType) {
-			"full" { $BkType = "full"; If(!(Test-Variable "BkClearBit")) { Set-Variable -name BkClearBit -value $True -scope Script } }
-			"incr" { $BkType = "incr"; If(!(Test-Variable "BkClearBit")) { Set-Variable -name BkClearBit -value $True -scope Script } }
-			"diff" { $BkType = "diff"; If(!(Test-Variable "BkClearBit")) { Set-Variable -name BkClearBit -value $False -scope Script } }
-			"copy" { $BkType = "copy"; If(!(Test-Variable "BkClearBit")) { Set-Variable -name BkClearBit -value $False -scope Script } }
-			"move" { $BkType = "move"; If(!(Test-Variable "BkClearBit")) { Set-Variable -name BkClearBit -value $False -scope Script } }
-			Default { Write-Output  "Missing or invalid --type argument" }
-		}	
+		Set-DefaultVariable "BkClearBit" $clearBitDefaults[[string]$BkType]
+		# The archive name is built from it: --type FULL gives the same name as --type full
+		Set-Variable -Name BkType -Value ([string]$BkType).ToLowerInvariant() -Scope Script
 	}
 
 	# --------------------------------------------------------------------------------------------------------------------------
@@ -1605,7 +1678,7 @@ Function Assert-Variables {
 	# If missing or set to "auto" we will assume drive letter for TEMP path.
 	# If passed from command line arguments we have to check is a valid drive letter
 	# and path is writable and, of course, is NTFS filesystem
-	If(!(Test-Variable "BkWorkDrive")) { Set-Variable -name BkWorkDrive -value "auto" -scope Script }
+	Set-DefaultVariable "BkWorkDrive" "auto"
 	If($BkWorkDrive -ieq "auto") { Set-Variable -name BkWorkDrive -value ($Env:Temp).Substring(0,1) -scope Script }
 	If (
 		($BkWorkDrive -ieq "") -or
@@ -1697,16 +1770,9 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Archive Type - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
-	If(!(Test-Variable "BkArchiveType")) { 
-		Set-Variable -name BkArchiveType -value "7z" -scope Script
-	} Else { 
-		Switch ($BkArchiveType) {
-			"7z"    { Set-Variable -name BkArchiveType -value "7z"  -scope Script }
-			"zip"   { Set-Variable -name BkArchiveType -value "zip" -scope Script }
-			"tar"   { Set-Variable -name BkArchiveType -value "tar" -scope Script }
-			Default { Write-Output "Missing or invalid --archivetype argument" }
-		}
-	}
+	Set-DefaultVariable "BkArchiveType" "7z"
+	$archiveType = Resolve-Choice $BkArchiveType "7z", "zip", "tar"
+	If($archiveType) { Set-Variable -Name BkArchiveType -Value $archiveType -Scope Script } Else { Write-Output "Missing or invalid --archivetype argument" }
 
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Archive Compression - Checks
@@ -1722,18 +1788,8 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Solid archive policy - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
-	If((Test-Variable "BkArchiveSolid") -eq $True) {
-		Set-Variable -name b -value $True -scope Local
-		If([system.boolean]::tryparse($BkArchiveSolid,[ref]$b)) {
-			Set-Variable -name BkArchiveSolid -value $b -scope Script
-		} Else {
-			Write-Output "Provided value for --solid argument is not valid boolean value."
-			Remove-Variable -name BkArchiveSolid -scope Script
-		}
-		Remove-Variable -name b -scope Local
-	} Else {
-		Set-Variable -name "BkArchiveSolid" -value $True -scope Script
-	}
+	Set-DefaultVariable "BkArchiveSolid" $True
+	Resolve-BooleanVariable "BkArchiveSolid" "Provided value for --solid argument is not valid boolean value."
 	
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Volumes archive policy - Checks
@@ -1776,39 +1832,13 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Archive Rotation Policy - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
-	If((Test-Variable "BkRotate")) {
-		Set-Variable -name i -value ([int]0) -scope Local
-		If(([system.int64]::tryparse($BkRotate,[ref]$i))) {
-			Set-Variable -name BkRotate -value $i -scope Script
-			If(!($BkRotate -gt 0)) {
-				Write-Output "Missing or invalid --rotate argument. Must be positive integer"
-				Remove-Variable -name BkRotate -scope Script
-			}
-		} Else {
-			Write-Output "Missing or invalid --rotate argument. Must be positive integer"
-			Remove-Variable -name BkRotate -scope Script
-		}
-		Remove-Variable -name i -scope Local
-	}
+	Resolve-IntegerVariable "BkRotate" 1 ([int64]::MaxValue) "Missing or invalid --rotate argument. Must be positive integer"
 
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Max Recursion Depth Policy - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Max depth to honor while scanning
-	If(Test-Variable "BkMaxDepth") {
-		Set-Variable -name i -value ([int]0) -scope Local
-		If(([system.int64]::tryparse($BkmaxDepth,[ref]$i))) {
-			Set-Variable -name BkMaxDepth -value $i -scope Script
-			If(($BkMaxDepth -lt 0)) {
-				Write-Output "Missing or invalid --maxdepth argument. Must be positive integer"
-				Remove-Variable -name BkMaxdepth -scope Script
-			} 
-		} Else {
-			Write-Output "Missing or invalid --maxdepth argument. Must be positive integer"
-			Remove-Variable -name BkMaxDepth -scope Script
-		}
-		Remove-Variable -name i -scope Local
-	}
+	Resolve-IntegerVariable "BkMaxDepth" 0 ([int64]::MaxValue) "Missing or invalid --maxdepth argument. Must be positive integer"
 
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Email Notification - Checks
@@ -1818,52 +1848,19 @@ Function Assert-Variables {
 		# ----------------------------------------------------------------------------------------------------------------------
 		# To Email Address(es) - Checks
 		# ----------------------------------------------------------------------------------------------------------------------
-		If(!($BkNotifyLog -is [array])) { 
-			Set-Variable -Name NotifyRecipients -value @($BkNotifyLog) -scope Script
-			$NotifyRecipients | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid --notify address {0} ignored" -f $_); $Counters.Warnings++ }
-			Set-Variable -Name BkNotifyLog -Value @($NotifyRecipients | Where-Object {IsValidEmailAddress $_}) -Scope Script 
-			Remove-Variable -Name NotifyRecipients -Scope Script
-		} Else {
-			$BkNotifyLog | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid --notify address {0} ignored" -f $_); $Counters.Warnings++ }
-			Set-Variable -Name BkNotifyLog -Value @($BkNotifyLog | Where-Object {IsValidEmailAddress $_}) -Scope Script 
-		}
-		If($BkNotifyLog.Count -lt 1) {
-			Trace " Warning : No valid --notify address left: no notification will be sent"; $Counters.Warnings++
-			Remove-Variable -Name BkNotifyLog -Scope Script
-		}
+		Resolve-AddressList "BkNotifyLog" "--notify"
+		If(!(Test-Variable "BkNotifyLog")) { Trace " Warning : No valid --notify address left: no notification will be sent"; $Counters.Warnings++ }
 
 		# ----------------------------------------------------------------------------------------------------------------------
 		# To CC Email Address(es) - Checks
 		# ----------------------------------------------------------------------------------------------------------------------
-		If(!($BkNotifyLogCc -is [array])) { 
-			Set-Variable -Name NotifyRecipients -value @($BkNotifyLogCc) -scope Script
-			$NotifyRecipients | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid --notifyCc address {0} ignored" -f $_); $Counters.Warnings++ }
-			Set-Variable -Name BkNotifyLogCc -Value @($NotifyRecipients | Where-Object {IsValidEmailAddress $_}) -Scope Script 
-			Remove-Variable -Name NotifyRecipients -Scope Script
-		} Else {
-			$BkNotifyLogCc | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid --notifyCc address {0} ignored" -f $_); $Counters.Warnings++ }
-			Set-Variable -Name BkNotifyLogCc -Value @($BkNotifyLogCc | Where-Object {IsValidEmailAddress $_}) -Scope Script 
-		}
-		If($BkNotifyLogCc.Count -lt 1) {
-			Remove-Variable -Name BkNotifyLogCc -Scope Script
-		}
-		
+		Resolve-AddressList "BkNotifyLogCc" "--notifyCc"
+
 		# ----------------------------------------------------------------------------------------------------------------------
 		# To BCC Email Address(es) - Checks
 		# ----------------------------------------------------------------------------------------------------------------------
-		If(!($BkNotifyLogBcc -is [array])) { 
-			Set-Variable -Name NotifyRecipients -value @($BkNotifyLogBcc) -scope Script
-			$NotifyRecipients | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid --notifyBcc address {0} ignored" -f $_); $Counters.Warnings++ }
-			Set-Variable -Name BkNotifyLogBcc -Value @($NotifyRecipients | Where-Object {IsValidEmailAddress $_}) -Scope Script 
-			Remove-Variable -Name NotifyRecipients -Scope Script
-		} Else {
-			$BkNotifyLogBcc | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid --notifyBcc address {0} ignored" -f $_); $Counters.Warnings++ }
-			Set-Variable -Name BkNotifyLogBcc -Value @($BkNotifyLogBcc | Where-Object {IsValidEmailAddress $_}) -Scope Script 
-		}
-		If($BkNotifyLogBcc.Count -lt 1) {
-			Remove-Variable -Name BkNotifyLogBcc -Scope Script
-		}
-		
+		Resolve-AddressList "BkNotifyLogBcc" "--notifyBcc"
+
 		# ----------------------------------------------------------------------------------------------------------------------
 		# From Email Addresses - Checks
 		# ----------------------------------------------------------------------------------------------------------------------
@@ -1880,13 +1877,10 @@ Function Assert-Variables {
 		# ----------------------------------------------------------------------------------------------------------------------
 		# Email info - Checks
 		# ----------------------------------------------------------------------------------------------------------------------
-		If(!(Test-Variable "BkNotifyExtra")) { Set-Variable -name BkNotifyExtra -value "none" -scope Script }
-		Switch ($BkNotifyExtra) {
-			"none"   { Set-Variable -name BkNotifyExtra -value "none"  -scope Script }
-			"inline" { Set-Variable -name BkNotifyExtra -value "inline" -scope Script }
-			"attach" { Set-Variable -name BkNotifyExtra -value "attach" -scope Script }
-			Default  { Write-Output "Missing or invalid --notifyextra argument" ; Set-Variable -name BkNotifyExtra -value "none" -scope Script}
-		}
+		Set-DefaultVariable "BkNotifyExtra" "none"
+		$notifyExtra = Resolve-Choice $BkNotifyExtra "none", "inline", "attach"
+		If(!$notifyExtra) { Write-Output "Missing or invalid --notifyextra argument"; $notifyExtra = "none" }
+		Set-Variable -Name BkNotifyExtra -Value $notifyExtra -Scope Script
 
 		# ----------------------------------------------------------------------------------------------------------------------
 		# Relay server - Checks
@@ -1919,20 +1913,8 @@ Function Assert-Variables {
 		# ----------------------------------------------------------------------------------------------------------------------
 		# Relay server port - Checks
 		# ----------------------------------------------------------------------------------------------------------------------
-		If(!(Test-Variable "BkSmtpPort"))  { Set-Variable -name BkSmtpPort -value ([int]25) -scope Script } Else {
-			Set-Variable -name i -value ([int]0) -scope Local
-			If(([system.int64]::tryparse($BkSmtpPort,[ref]$i))) {
-				Set-Variable -name BkSmtpPort -value $i -scope Script
-				If(($BkSmtpPort -le 0) -or ($BkSmtpPort -gt 65535)) {
-					Write-Output "Provided value for --smtpPort argument is not valid. Must be a number [1-65535]."
-					Remove-Variable -name BkSmtpPort -scope Script
-				}
-			} Else {
-				Write-Output "Provided value for --smtpPort argument is not valid. Must be a number [1-65535]."
-				Remove-Variable -name BkSmtpPort -scope Script
-			}
-			Remove-Variable -name i -scope Local
-		}
+		If(!(Test-Variable "BkSmtpPort")) { Set-Variable -Name BkSmtpPort -Value ([int]25) -Scope Script }
+		Else { Resolve-IntegerVariable "BkSmtpPort" 1 65535 "Provided value for --smtpPort argument is not valid. Must be a number [1-65535]." }
 
 		# ----------------------------------------------------------------------------------------------------------------------
 		# MailKit (optional) - Checks
@@ -2603,7 +2585,7 @@ public class SevenZipOutput {
 		While($sevenZipOutput.TryGetError([ref]$stdErrLine)) { Trace (" !{0}" -f $stdErrLine) }
 
 		# Retrieve ExitCode if not already defined
-		If(!(Test-Variable "Bk7ZipRetc")) { Set-Variable -Name "Bk7ZipRetc" -value $oProcess.ExitCode -scope Script }
+		Set-DefaultVariable "Bk7ZipRetc" $oProcess.ExitCode
 		
 		# Stop the clock
 		$MyContext.CompressionEnd = Get-Date
@@ -2669,7 +2651,7 @@ public class SevenZipOutput {
 			# the rotation range. If no rotation is defined then assume rotation period is 999 so we
 			# can easily have an output of archives on target media.
 			If(!(Test-CtrlCRequest)) {
-				If(!(Test-Variable "BkRotate")) { Set-Variable -name "BkRotate" -value ([int]9999) -scope Script }
+				Set-DefaultVariable "BkRotate" ([int]9999)
 				If(($BkRotate -ge 1)) {
 					$totalArchiveBytes = [int64]0
 					$fileNameRgx = ("^$([Regex]::Escape($BkArchivePrefix))-$BkType-[0-9]{8}-[0-9]{4,6}\.(7z|zip|tar)(\.\d{3})?$")
