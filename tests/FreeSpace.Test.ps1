@@ -29,7 +29,7 @@ Write-Host "`n Case: drive root"
 Assert ([math]::Abs((GetDestPathFreeSpace -target $drive) - $expected) -lt 100MB) "drive root works [$drive]"
 
 Write-Host "`n Case: UNC path (administrative share of this PC)"
-$unc = "\localhost\" + $drive.Substring(0, 1) + "$\Windows"
+$unc = "\\localhost\" + $drive.Substring(0, 1) + "$\Windows"
 If(Test-Path -LiteralPath $unc) {
 	Assert ([math]::Abs((GetDestPathFreeSpace -target $unc) - $expected) -lt 100MB) "UNC path works [$unc]"
 } Else {
