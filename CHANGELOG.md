@@ -5,6 +5,7 @@ Ui (user interface). Some old entries use Minor or New, or have no category.
 
 ## Unreleased
 
+- Bug: New-RootDir error messages named an undefined variable instead of the root directory
 - Bug: --type FULL named the archive with FULL and --type full with full: the validated type is now kept in lower case (#16)
 - Code: Command line arguments are read from two tables (options with a value, switches) instead of a 42-case switch (#16)
 - Code: Assert-Variables checks use helpers: Set-DefaultVariable, Resolve-Choice, Resolve-BooleanVariable, Resolve-IntegerVariable and Resolve-AddressList (one copy for --notify, --notifyCc and --notifyBcc, was three). Test-Variable is a single quiet Get-Variable call (#16)

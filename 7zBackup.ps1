@@ -578,7 +578,7 @@ Function New-RootDir {
 	# Create Root Directory and place a huge README.TXT
 	New-Item -Path $BkRootDir -ItemType Directory | Out-Null
 	If(!$?) { 
-		Write-Output ("Unable to create directory {0}. Check permissions." -f $path)
+		Write-Output ("Unable to create directory {0}. Check permissions." -f $BkRootDir)
 		Return
 	} Else {
 		If([int]$MyContext.WinVer[0] -lt 6 ) {
@@ -587,7 +587,7 @@ Function New-RootDir {
 			New-Item (Join-Path -Path $BkRootDir -ChildPath "__README__PLEASE__README__.txt") -type File -value "This directory contains junctions or symbolic links.`nDO NOT DELETE THIS DIRECTORY AND IT'S CONTENTS USING WINDOWS EXPLORER.`nUse the RD command to delete the links and then safely delete the directory, use cmd /c rmdir <thesymlink'sname> in case of using Powershell." | Out-Null
 		}
 		If(!$?) {
-			Write-Output ("Can't write into {0}. Check permissions." -f $path)
+			Write-Output ("Can't write into {0}. Check permissions." -f $BkRootDir)
 			Return
 		}
 	}
