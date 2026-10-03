@@ -5,6 +5,15 @@ Ui (user interface). Some old entries use Minor or New, or have no category.
 
 ## Unreleased
 
+- Bug: --volumes accepted any text containing a digit and a letter or pipe (abc10b); now only a number and b, k, m or g. On Windows XP/2003 the junction.exe search in Program Files used a parameter Test-Path does not have and never worked. Rotation labels New by name start, not by pattern match
+- Code: The 7-Zip exit codes 255, 2, 7 and 8 are handled from one table, and rotation counts the first archive part with one regex
+- Code: The 7-Zip argument list is built with fewer lines and the duplicated -bd is gone (same command line, now covered by a test)
+- Code: GetDestPathFreeSpace uses GetPathRoot for local and network paths, and the redundant Test-FsAttribute is removed (Test-Path already checks file and folder)
+- Code: Test-Lock reads the lock file lines into a table instead of three pattern tests
+- Code: 14 Write-Output followed by Return became a single Return with the value
+- Code: Format-Elapsed writes the four phase times of the log, and the unused SelectionEnd, CompressionEnd and PostProcessFilesEnd values are gone. Task time now shows seconds with decimals like the other times
+- Code: The six match* selection blocks are read by one function (Read-MatchRule). matchincludefiles values are now trimmed like the others
+- Bug: New-RootDir error messages named an undefined variable instead of the root directory
 - Bug: --type FULL named the archive with FULL and --type full with full: the validated type is now kept in lower case (#16)
 - Code: Command line arguments are read from two tables (options with a value, switches) instead of a 42-case switch (#16)
 - Code: Assert-Variables checks use helpers: Set-DefaultVariable, Resolve-Choice, Resolve-BooleanVariable, Resolve-IntegerVariable and Resolve-AddressList (one copy for --notify, --notifyCc and --notifyBcc, was three). Test-Variable is a single quiet Get-Variable call (#16)

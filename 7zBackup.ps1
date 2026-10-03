@@ -354,23 +354,6 @@ Function Test-CtrlCRequest {
 
 
 # -----------------------------------------------------------------------------
-# Function 		: Test-FsAttribute
-# -----------------------------------------------------------------------------
-# Description	: Checks for the presence of an attribute on a FileSystem object
-# Parameters    : [string]itemFullName - The name of the item to check
-#				  [string]attrName     - The name of the attribute to look for
-# Returns       : $True / $False
-# Credits       : http://scriptolog.blogspot.com/2007/10/file-attributes-helper-functions.html
-# -----------------------------------------------------------------------------
-Function Test-FsAttribute {
-    param([string]$itemFullName = $(throw "You must provide an item name"),
-	      [string]$attrName = $(throw "You must provide an attribute name"))
-
-	$item = Get-Item -LiteralPath $itemFullName -Force
-	[bool]($item -and ($item.Attributes -band [System.IO.FileAttributes]::$attrName))
-} 
-
-# -----------------------------------------------------------------------------
 # Function 		: Close-Writers
 # -----------------------------------------------------------------------------
 # Description	: Flushes and closes the file stream writers of the script
@@ -461,19 +444,7 @@ Function IsValidHostName {
 Function GetDestPathFreeSpace {
 	param([string]$target = $(throw "You must provide a location to check"))
 	
-	If($target -imatch "^\\\\") {
-	
-		While($true) {
-			$parent = (Split-Path -Path $target -Parent)
-			If($parent) { $target = $parent } Else { break }
-		}
-		Write-Output ([int64]((new-object -com scripting.filesystemobject).getdrive($target).availablespace))
-	
-	} Else {
-		
-		Write-Output ([int64]((new-object -com scripting.filesystemobject).getdrive($target.Substring(0,1)).availablespace))
-		
-	}
+	Return [int64]((New-Object -ComObject Scripting.FileSystemObject).GetDrive([System.IO.Path]::GetPathRoot($target)).AvailableSpace)
 }
 
 # -----------------------------------------------------------------------------
@@ -512,8 +483,7 @@ Function New-Junction {
 		Start-Sleep -Milliseconds 10
 		
 		# Test is present
-		Write-Output (Test-Path -Path $jPath)
-		Return
+		Return (Test-Path -Path $jPath)
 
 		
 	}
@@ -558,8 +528,7 @@ Function New-SymLink {
 		Start-Sleep -Milliseconds 10
 		
 		# Test is present
-		Write-Output (Test-Path -Path $jPath)
-		Return
+		Return (Test-Path -Path $jPath)
 		
 	}
 	Write-Output $False
@@ -578,8 +547,7 @@ Function New-RootDir {
 	# Create Root Directory and place a huge README.TXT
 	New-Item -Path $BkRootDir -ItemType Directory | Out-Null
 	If(!$?) { 
-		Write-Output ("Unable to create directory {0}. Check permissions." -f $path)
-		Return
+		Return ("Unable to create directory {0}. Check permissions." -f $BkRootDir)
 	} Else {
 		If([int]$MyContext.WinVer[0] -lt 6 ) {
 			New-Item (Join-Path -Path $BkRootDir -ChildPath "__README__PLEASE__README__.txt") -type File -value "This directory contains Junctions.`nDO NOT DELETE THIS DIRECTORY AND IT'S CONTENTS USING WINDOWS EXPLORER.`nUse Junction -d to delete junctions and then safely delete the directory." | Out-Null
@@ -587,8 +555,7 @@ Function New-RootDir {
 			New-Item (Join-Path -Path $BkRootDir -ChildPath "__README__PLEASE__README__.txt") -type File -value "This directory contains junctions or symbolic links.`nDO NOT DELETE THIS DIRECTORY AND IT'S CONTENTS USING WINDOWS EXPLORER.`nUse the RD command to delete the links and then safely delete the directory, use cmd /c rmdir <thesymlink'sname> in case of using Powershell." | Out-Null
 		}
 		If(!$?) {
-			Write-Output ("Can't write into {0}. Check permissions." -f $path)
-			Return
+			Return ("Can't write into {0}. Check permissions." -f $BkRootDir)
 		}
 	}
 	
@@ -729,9 +696,8 @@ Function PostArchiving {
 	}
 	
 	Write-Progress -Activity "." -Status "." -Completed
-	$MyContext.PostProcessFilesEnd = Get-Date
-	$MyContext.PostProcessFilesElapsed = New-TimeSpan $MyContext.PostProcessFilesStart $MyContext.PostProcessFilesEnd
-	Trace (" Phase time   : {0,0:n0} d : {1,0:n0} h : {2,0:n0} m : {3,0:n3} s" -f $MyContext.PostProcessFilesElapsed.Days, $MyContext.PostProcessFilesElapsed.Hours, $MyContext.PostProcessFilesElapsed.Minutes, ($MyContext.PostProcessFilesElapsed.Seconds + ($MyContext.PostProcessFilesElapsed.MilliSeconds/1000)) )
+	$MyContext.PostProcessFilesElapsed = (Get-Date) - $MyContext.PostProcessFilesStart
+	Trace (" Phase time   : {0}" -f (Format-Elapsed $MyContext.PostProcessFilesElapsed))
 	Trace (" Performance  : {0,0:n2} files/sec`n" -f ($ItemsDone / $MyContext.PostProcessFilesElapsed.TotalSeconds ) )
 	
 }
@@ -1017,8 +983,7 @@ Function Remove-Junction  {
 		Start-Sleep -Milliseconds 10
 		
 		# Test is no more present !!
-		Write-Output ((Test-Path -Path $jPath) -eq $False)
-		Return
+		Return ((Test-Path -Path $jPath) -eq $False)
 		
 	}
 	Write-Output $False
@@ -1052,8 +1017,7 @@ Function Remove-RootDir {
 		}
 		If($junctionsRemoved -And (@(Get-ChildItem -Path $rootPath | Where-Object {$_.PsIsContainer}).Count -eq 0) ) {
 			Remove-Item -Path $rootPath -Recurse -Force | Out-Null
-			Write-Output $?
-			Return 
+			Return $?
 		}
 	}
 	Write-Output $False
@@ -1078,8 +1042,7 @@ Function Remove-SymLink  {
 		Start-Sleep -Milliseconds 10
 		
 		# Test is no more present !!
-		Write-Output ((Test-Path -LiteralPath $jPath) -eq $False)
-		Return
+		Return ((Test-Path -LiteralPath $jPath) -eq $False)
 		
 	}
 	Write-Output $False
@@ -1286,12 +1249,12 @@ Function Test-Lock {
 	If(Test-Path -LiteralPath $BkLockFile -pathType Leaf) {
 
 		# A previously executed script has left it's lock file
-		$OldPid = $null; $OldStart = $null; $OldRoot = $null
+		$lock = @{}
 		foreach ($line in @(Get-Content $BkLockFile -Encoding Ascii)) {
-			If($line -match "^PID=")   { $OldPid   = $line.Substring($line.IndexOf("=") + 1) }
-			If($line -match "^Start=") { $OldStart = $line.Substring($line.IndexOf("=") + 1) }
-			If($line -match "^Root=")  { $OldRoot  = $line.Substring($line.IndexOf("=") + 1) }
+			$name, $value = $line -split "=", 2
+			$lock[$name] = $value
 		}
+		$OldPid = $lock.PID; $OldStart = $lock.Start; $OldRoot = $lock.Root
 
 		If ($OldPid) {
 
@@ -1301,8 +1264,7 @@ Function Test-Lock {
 			$OldProcess = Get-Process -Id $OldPid
 			If (($OldProcess) -And ($OldPid -ne $PID)) {
 				If (($null -eq $OldProcess.StartTime) -Or ($OldProcess.StartTime.ToUniversalTime().Ticks -eq $OldStart)) {
-					Write-Output ("A previous operation is running with process id {0}`n Quitting ...`n " -f $OldPid)
-					Return
+					Return ("A previous operation is running with process id {0}`n Quitting ...`n " -f $OldPid)
 				}
 			}
 
@@ -1310,8 +1272,7 @@ Function Test-Lock {
 			If(($OldRoot) -And (Test-Path -LiteralPath $OldRoot -PathType Container)) { Remove-RootDir $OldRoot | Out-Null }
 			Remove-Item -LiteralPath $BkLockFile -Force | Out-Null
 			If(!($?)) {
-				Write-Output ("Could not remove a previous lock file`n Quitting ...`n ")
-				Return
+				Return ("Could not remove a previous lock file`n Quitting ...`n ")
 			}
 		} Else {
 		
@@ -1321,8 +1282,7 @@ Function Test-Lock {
 				If(!($?)) {
 					Write-Output ("Could not remove a previous lock file")
 					Write-Output ("Check lock file {0}" -f $BkLockFile )
-					Write-Output ("Quitting ...")
-					Return
+					Return ("Quitting ...")
 				}
 				
 			} Else {
@@ -1341,8 +1301,7 @@ Function Test-Lock {
 	New-Item -Path $BkLockFile -ItemType File -Force | Out-Null
 	If ($?) {("PID={0}`nStart={1}`nRoot={2}" -f [System.Diagnostics.Process]::GetCurrentProcess().Id, [System.Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().Ticks, $BkRootDir) | Out-File $BkLockFile -encoding ASCII -append }
 	If(!($?)) {
-		Write-Output ("Could not write lock file`n Quitting ...`n ")
-		Return
+		Return ("Could not write lock file`n Quitting ...`n ")
 	}
 	$MyContext.LockOwned = $True
 
@@ -1373,11 +1332,9 @@ Function Test-Path-Writable {
 		}
 		If ($?) {
 			Remove-Item $dummyItem | Out-Null
-			Write-Output $?
-			Return
+			Return $?
 		} Else { 
-			Write-Output $?
-			Return
+			Return $?
 		}
 		
 	}
@@ -1496,6 +1453,17 @@ Function Trace ($message) {
 }
 
 # -----------------------------------------------------------------------------
+# Function 		: Format-Elapsed
+# -----------------------------------------------------------------------------
+# Description	: Formats a time span as "d : h : m : s" for the log
+# Parameters    : [timespan]$span - The time span to format
+# Returns       : [string]
+# -----------------------------------------------------------------------------
+Function Format-Elapsed ([timespan]$span) {
+	"{0,0:n0} d : {1,0:n0} h : {2,0:n0} m : {3,0:n3} s" -f $span.Days, $span.Hours, $span.Minutes, ($span.Seconds + $span.Milliseconds / 1000)
+}
+
+# -----------------------------------------------------------------------------
 # Function 		: Trace-Progress
 # -----------------------------------------------------------------------------
 # Description	: Write-Progress at most once every 500 ms. Each Write-Progress
@@ -1562,6 +1530,35 @@ Function Read-SelectionDirectives ([string[]]$lines) {
 		If($directive.Convert) { $value = & $directive.Convert $value }
 		Set-Variable -Name $directive.Variable -Value $value -Scope Script
 	}
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Read-MatchRule
+# -----------------------------------------------------------------------------
+# Description	: Reads the "name=regex" lines of the selection file into the
+#				  script variable "name": all regexes joined by "|". The
+#				  criteria are written to the log
+# Parameters    : [string[]]$lines - The selection file lines (no comments)
+#                 [string]$name - The rule name, also the variable name
+#                 [string]$title - The log title
+#                 [string]$bullet - The text before each regex in the log
+#                 [string]$footer - The log text after the regexes
+#                 [string]$emptyText - The log text when there is no regex
+#                 [switch]$Always - Log the title also when there is no line
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Read-MatchRule ([string[]]$lines, [string]$name, [string]$title, [string]$bullet, [string]$footer, [string]$emptyText, [switch]$Always) {
+	$prefix = "$name="
+	$rules = @($lines | Where-Object { $_.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
+	If(!$rules -and !$Always) { Return }
+
+	Trace "`n $title"
+	Trace " ------------------------------------------------------------------------------"
+	$regexes = @($rules | ForEach-Object { $_.Substring($prefix.Length).Trim() } | Where-Object { $_ })
+	$regexes | ForEach-Object { Trace "$bullet$_" }
+	If($regexes) { Set-Variable -Name $name -Value ($regexes -join "|") -Scope Script }
+	ElseIf($emptyText) { Trace $emptyText }
+	If($footer) { Trace "`n $footer" }
 }
 
 # -----------------------------------------------------------------------------
@@ -1650,8 +1647,7 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Check we're on Powershell 3.x. If not early exit.
 	If($MyContext.PSVer -lt 2) {
-		Write-Output ("You must be on PowerShell 2.x (or better) to run this script. You're on {0}" -f $MyContext.PSVer)
-		Return
+		Return ("You must be on PowerShell 2.x (or better) to run this script. You're on {0}" -f $MyContext.PSVer)
 	}
 
 	# --------------------------------------------------------------------------------------------------------------------------
@@ -1695,8 +1691,7 @@ Function Assert-Variables {
 	If (
 		((Test-Variable "BkSelection") -eq $False) -or
 		($BkSelection -match "^\s*$") -or
-		((Test-Path $BkSelection -pathType Leaf) -eq $False) -or
-		(Test-FsAttribute $BkSelection "Directory")
+		((Test-Path $BkSelection -pathType Leaf) -eq $False)
 	)	{ Write-Output "Missing or invalid --selection argument. Must be an existent file" } 
 	Else 
 	{
@@ -1750,7 +1745,6 @@ Function Assert-Variables {
 		!($BkDestPath) -Or
 		($BkDestPath -match "^\s*$") -Or
 		!(Test-Path $BkDestPath -pathType Container) -Or
-		!(Test-FsAttribute $BkDestPath "Directory") -Or
 		!(Test-Path-Writable $BkDestPath "File")
 	) { 
 		Write-Output ("Missing or invalid --destpath {0}." -f $BkDestPath) 
@@ -1796,7 +1790,7 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	If((Test-Variable "BkArchiveVolumes") -eq $True) {
 		If(!($BkArchiveVolumes -is [array])) { $BkArchiveVolumes = @($BkArchiveVolumes) }
-		$BkArchiveVolumes | ForEach-Object { If($_ -notmatch "\d+[b|k|m|g]") { Write-Output ("Missing or invalid --volumes argument {0} " -f $_) } }
+		$BkArchiveVolumes | ForEach-Object { If($_ -notmatch "^\d+[bkmg]\z") { Write-Output ("Missing or invalid --volumes argument {0} " -f $_) } }
 	} 
 
 	# --------------------------------------------------------------------------------------------------------------------------
@@ -1959,7 +1953,7 @@ Function Assert-Variables {
 
 		If(!(Test-Variable "BkJunctionBin")) { 
 			${Env:ProgramFiles}, ${Env:ProgramFiles(x86)} | ForEach-Object {
-				If(Test-Path -Path $_ -ChildPath "\SysInternalsSuite\junction.exe" -PathType Leaf) {
+				If(Test-Path -Path (Join-Path -Path $_ -ChildPath "\SysInternalsSuite\junction.exe") -PathType Leaf) {
 				Set-Variable -Name BkJunctionBin -value  (Join-Path -Path $_ -ChildPath "\SysInternalsSuite\junction.exe") -scope Script
 				}
 			}
@@ -2148,53 +2142,11 @@ If(( $BkSources.Count -eq 0 )) {
 }
 
 # --------------------------------------------------------------------
-# Check we have an cleanup criteria on directories
+# Read the regular expression criteria
 # --------------------------------------------------------------------
-If($BkSelectionContents | Where-Object {$_ -match "^matchcleanupdirs="}) {
-
-	Trace " Remove Directories Criteria"
-	Trace " ------------------------------------------------------------------------------"
-	$BkSelectionContents | Where-Object {$_ -match "^matchcleanupdirs="} | ForEach-Object {
-		$line = $_.Substring($_.IndexOf("=") + 1).Trim()
-		If(($line)) {
-			Trace " + Regex : $line"
-			If(!($matchcleanupdirs)) { $matchcleanupdirs = $line } Else { $matchcleanupdirs += ("|" + $line) }
-		}
-	}
-	Trace "`n All directories matching the above listed regular expressions will be deleted !!!`n"
-}
-
-
-# --------------------------------------------------------------------
-# Check we have an cleanup criteria on file names
-# --------------------------------------------------------------------
-If($BkSelectionContents | Where-Object {$_ -match "^matchcleanupfiles="}) {
-
-	Trace " Remove Files Criteria"
-	Trace " ------------------------------------------------------------------------------"
-	$BkSelectionContents | Where-Object {$_ -match "^matchcleanupfiles="} | ForEach-Object {
-		$line = $_.Substring($_.IndexOf("=") + 1).Trim()
-		If(($line)) {
-			Trace " + Regex : $line"
-			If(!($matchcleanupfiles)) { $matchcleanupfiles = $line } Else { $matchcleanupfiles += ("|" + $line) }
-		}
-	}
-	Trace "`n All files matching the above listed regular expressions will be deleted !!!"
-}
-
-# --------------------------------------------------------------------
-# Check we have an exclude criteria on file names
-# --------------------------------------------------------------------
-Trace "`n Files Inclusion Criteria "
-Trace " ------------------------------------------------------------------------------"
-$BkSelectionContents | Where-Object {$_ -match "^matchincludefiles="} | ForEach-Object {
-	$line = $_.Substring($_.IndexOf("=") + 1)
-	If(($line)) {
-		Trace " + Regex : $line"
-		If(!($matchincludefiles)) { $matchincludefiles = $line } Else { $matchincludefiles += ("|" + $line) }
-	}
-}
-If(!($matchincludefiles)) { Trace " + Any file name " }
+Read-MatchRule $BkSelectionContents "matchcleanupdirs" "Remove Directories Criteria" " + Regex : " "All directories matching the above listed regular expressions will be deleted !!!"
+Read-MatchRule $BkSelectionContents "matchcleanupfiles" "Remove Files Criteria" " + Regex : " "All files matching the above listed regular expressions will be deleted !!!"
+Read-MatchRule $BkSelectionContents "matchincludefiles" "Files Inclusion Criteria" " + Regex : " "" " + Any file name " -Always
 
 # --------------------------------------------------------------------
 # Check we have max/min fileage to honor
@@ -2208,55 +2160,9 @@ If (Test-Variable "BkMinFileAge") { Trace " + Min File Age : $BkMinFileAge days"
 If (Test-Variable "BkMaxFileSize") { Trace " + Max File Size : $BkMaxFileSize bytes" }
 If (Test-Variable "BkMinFileSize") { Trace " + Min File Size : $BkMinFileSize bytes" }
 
-# --------------------------------------------------------------------
-# Check we have an exclude criteria on file names
-# --------------------------------------------------------------------
-If($BkSelectionContents | Where-Object {$_ -match "^matchexcludefiles="}) {
-	Trace "`n Files Exclusion Criteria "
-	Trace " ------------------------------------------------------------------------------"
-	$BkSelectionContents | Where-Object {$_ -match "^matchexcludefiles="} | ForEach-Object {
-		$line = $_.Substring($_.IndexOf("=") + 1).Trim()
-		If(($line)) {
-			Trace " - Regex : $line"
-			If(!($matchexcludefiles)) { $matchexcludefiles = $line } Else { $matchexcludefiles += ("|" + $line) }
-		}
-	}
-	If(!($matchexcludefiles)) { Trace " None " }
-	Trace "`n All files matching the above listed regular expressions `n WILL NOT BE INCLUDED IN BACKUP !!!"
-}
-
-# --------------------------------------------------------------------
-# Check we have an exclude criteria on paths
-# --------------------------------------------------------------------
-If($BkSelectionContents | Where-Object {$_ -match "^matchexcludepath="}) {
-	Trace "`n Exclude Paths Criteria "
-	Trace " ------------------------------------------------------------------------------"
-	$BkSelectionContents | Where-Object {$_ -match "^matchexcludepath="} | ForEach-Object {
-		$line = $_.Substring($_.IndexOf("=") + 1).Trim()
-		If(($line)) {
-			Trace " -match $line"
-			If(!($matchexcludepath)) { $matchexcludepath = $line } Else { $matchexcludepath += ("|" + $line) }
-		}
-	}
-	If(!($matchexcludepath))  { Trace " None "}
-	Trace "`n All directories matching the above listed regular expressions `n WILL NOT BE INCLUDED IN BACKUP !!!"
-}
-# --------------------------------------------------------------------
-# Check we have any rule to stop digging into directories
-# --------------------------------------------------------------------
-If($BkSelectionContents | Where-Object {$_ -match "^matchstoprecurse="}) {
-	Trace "`n Stop Recursion Criteria "
-	Trace " ------------------------------------------------------------------------------"
-	$BkSelectionContents | Where-Object {$_ -match "^matchstoprecurse="} | ForEach-Object {
-		$line = $_.Substring($_.IndexOf("=") + 1).Trim()
-		If(($line)) {
-			Trace " -match $line"
-			If(!($matchstoprecurse)) { $matchstoprecurse = $line } Else { $matchstoprecurse += ("|" + $line) }
-		}
-	}
-	If(!($matchstoprecurse))  { Trace " None " }
-	Trace "`n All directories matching the above listed regular expressions `n WILL NOT BE RECURSED !!!"
-}
+Read-MatchRule $BkSelectionContents "matchexcludefiles" "Files Exclusion Criteria" " - Regex : " "All files matching the above listed regular expressions `n WILL NOT BE INCLUDED IN BACKUP !!!" " None "
+Read-MatchRule $BkSelectionContents "matchexcludepath" "Exclude Paths Criteria" " -match " "All directories matching the above listed regular expressions `n WILL NOT BE INCLUDED IN BACKUP !!!" " None "
+Read-MatchRule $BkSelectionContents "matchstoprecurse" "Stop Recursion Criteria" " -match " "All directories matching the above listed regular expressions `n WILL NOT BE RECURSED !!!" " None "
 
 # --------------------------------------------------------------------
 # Move to the $BkRootDir and make it current
@@ -2348,11 +2254,10 @@ $SWriters.GetEnumerator() | ForEach-Object {
 
 
 # Calc of elapsed time for selection process
-$MyContext.SelectionEnd = Get-Date
-$MyContext.SelectionElapsed = New-TimeSpan $MyContext.SelectionStart $MyContext.SelectionEnd
+$MyContext.SelectionElapsed = (Get-Date) - $MyContext.SelectionStart
 
 # Trace informations about what is selected
-Trace (" Phase time   : {0,0:n0} d : {1,0:n0} h : {2,0:n0} m : {3,0:n3} s" -f $MyContext.SelectionElapsed.Days, $MyContext.SelectionElapsed.Hours, $MyContext.SelectionElapsed.Minutes, ($MyContext.SelectionElapsed.Seconds + ($MyContext.SelectionElapsed.MilliSeconds/1000)) )
+Trace (" Phase time   : {0}" -f (Format-Elapsed $MyContext.SelectionElapsed))
 Trace (" Selected     : {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3,0:n2} MBytes to backup" -f  $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, ($Counters.BytesSelected/1mb))
 Trace (" Performance  : {0,0:n2} files/sec " -f ( $Counters.FilesProcessed / $MyContext.SelectionElapsed.TotalSeconds ) )
 
@@ -2434,64 +2339,32 @@ If(($Counters.FilesSelected -lt 1) -or (Test-CtrlCRequest)) {
 		Write-Progress -Activity "Archiving into $BkDestFile" -Status "Please wait ..." -CurrentOperation "Initializing ..."	
 
 		# Compose arguments which will be passed to command line
-		$Bk7ZipArgs = @()
-		$Bk7ZipArgs += "a"																	# This is the "add" switch (means add and update)
-		$Bk7ZipArgs += "-ssw"																# Archive files open for writing
-		$Bk7ZipArgs += "-slp"																# Use large memory pages
-		
-		If((Test-Variable "BkArchiveCompression") -And ($BkArchiveType -ne "tar")) { 		# Set compression level
-			$Bk7ZipArgs += ("-mx{0}" -f $BkArchiveCompression)
-		}
-		# Important !!!
-		$Bk7ZipArgs += "-scsUTF-8"															# Set charset for list files to UTF8
-		$Bk7ZipArgs += "-sccUTF-8"															# Set charset for console input/output to UTF-8 (password input, output decoding)
+		$Bk7ZipArgs = @("a", "-ssw", "-slp")												# Add and update, archive files open for writing, large memory pages
+		If((Test-Variable "BkArchiveCompression") -And ($BkArchiveType -ne "tar")) { $Bk7ZipArgs += "-mx$BkArchiveCompression" }
+		# Charset for list files and for console input/output (password input, output decoding) is UTF-8. -bd disables the progress indicator
+		$Bk7ZipArgs += "-scsUTF-8", "-sccUTF-8", "-bd"
 		
 		# If 7zip is beyond version 9.2 then add some more switches
 		If ([int]$MyContext.SevenZBinVersionInfo.Major -ge 15) {
-			$Bk7ZipArgs += "-bd"															# Disable Progress indicator
-			$Bk7ZipArgs += "-bb1"
-			$Bk7ZipArgs += "-bsp0"
-			$Bk7ZipArgs += "-bso1"
-			$Bk7ZipArgs += "-bse2"
-			If($BkArchiveType -eq "7z") {
-				$Bk7ZipArgs += "-mtm=on"													# Stores last Modified timestamps for files.
-				$Bk7ZipArgs += "-mtc=on"													# Stores Creation timestamps for files.
-				$Bk7ZipArgs += "-mta=on"													# Stores last Access timestamps for files.
-			}
-		} Else {
-			$Bk7ZipArgs += "-bd"															# Disable Progress indicator
+			$Bk7ZipArgs += "-bb1", "-bsp0", "-bso1", "-bse2"
+			If($BkArchiveType -eq "7z") { $Bk7ZipArgs += "-mtm=on", "-mtc=on", "-mta=on" }		# Store modified, creation and access timestamps
 		}
 		
 		# Control Threading
 		If(Test-Variable "BkArchiveThreads") {
-			If($BkArchiveThreads -lt 1) {
-				$Bk7ZipArgs += "-mmt=off"													# Disable multi threading
-			} Else {
-				$Bk7ZipArgs += ("-mmt={0}" -f $BkArchiveThreads)							# Use exact number of threads
-			}
+			If($BkArchiveThreads -lt 1) { $Bk7ZipArgs += "-mmt=off" } Else { $Bk7ZipArgs += "-mmt=$BkArchiveThreads" }
 		}
 		
-		# Control solid archives															
-		If(($BkArchiveType -eq "7z") -And !($BkArchiveSolid)) {
-			$Bk7ZipArgs += "-ms=off"													    # Disable solid archive
-		}
+		# Control solid archives and volumes
+		If(($BkArchiveType -eq "7z") -And !($BkArchiveSolid)) { $Bk7ZipArgs += "-ms=off" }
+		If(Test-Variable "BkArchiveVolumes") { $Bk7ZipArgs += @($BkArchiveVolumes | ForEach-Object { "-v$_" }) }
 	
-		# Control volumes																	# Apply Volumes Policies
-		If((Test-Variable "BkArchiveVolumes") -eq $True) {
-			$BkArchiveVolumes | ForEach-Object {
-				$Bk7ZipArgs += ("-v{0}" -f $_)
-			}
-		}
-	
-		$Bk7ZipArgs += "-t" + $BkArchiveType												# This is the type of the archive
+		$Bk7ZipArgs += "-t$BkArchiveType"
 		If(Test-Variable "BkArchivePassword") { 
 			$Bk7ZipArgs += "-p" 											# Password prompt: the password goes to 7-Zip input, never on the command line
 			If($BkEncryptHeaders) { $Bk7ZipArgs += "-mhe" }
 		}
-		
-		
-		$Bk7ZipArgs += "`"$BkDestFile`""													# This is the destination file
-		$Bk7ZipArgs += "`@`"$BkCatalogInclude`""											# This is the catalog input file
+		$Bk7ZipArgs += "`"$BkDestFile`"", "`@`"$BkCatalogInclude`""								# The destination file and the catalog input file
 		
 		# Create Process
 		If(Test-Variable "Bk7ZipRetc") { Remove-Variable -Name Bk7ZipRetc }
@@ -2588,8 +2461,7 @@ public class SevenZipOutput {
 		Set-DefaultVariable "Bk7ZipRetc" $oProcess.ExitCode
 		
 		# Stop the clock
-		$MyContext.CompressionEnd = Get-Date
-		$MyContext.CompressionElapsed = New-TimeSpan $MyContext.CompressionStart $MyContext.CompressionEnd
+		$MyContext.CompressionElapsed = (Get-Date) - $MyContext.CompressionStart
 		
 		
 		# Close StreamWriter for Compress Details
@@ -2636,7 +2508,7 @@ public class SevenZipOutput {
 			# Output informations in log file 
 			Trace (" Created      : {1} in {0} " -f $BkDestPath, $BkArchiveName)
 			Trace (" Archive Size : {0,0:n2} MB = {1,2:n2}% of original size" -f ($ArchiveSize / 1Mb), ((($ArchiveSize / $Counters.BytesSelected)) * 100))
-			Trace (" 7zip time    : {0,0:n0} d : {1,0:n0} h : {2,0:n0} m : {3,0:n3} s" -f $MyContext.CompressionElapsed.Days, $MyContext.CompressionElapsed.Hours, $MyContext.CompressionElapsed.Minutes, ($MyContext.CompressionElapsed.Seconds + $MyContext.CompressionElapsed.Milliseconds / 1000) )
+			Trace (" 7zip time    : {0}" -f (Format-Elapsed $MyContext.CompressionElapsed))
 			Trace (" Performance  : {0,0:n2} files/sec" -f ($Counters.FilesSelected / $MyContext.CompressionElapsed.TotalSeconds) )
 			Trace (" IO Avg Speed : Read {0,0:n2} MB/Sec / Write {1,0:n2} MB/Sec" -f (($Counters.BytesSelected / $MyContext.CompressionElapsed.TotalSeconds) / 1MB), (($ArchiveSize / $MyContext.CompressionElapsed.TotalSeconds) / 1MB) )
 			Trace " "
@@ -2659,16 +2531,14 @@ public class SevenZipOutput {
 					Trace " ------------------------------------------------------------------------------"
 					Get-ChildItem $BkDestPath | Where-Object { $_.Name -match $fileNameRgx -and !$_.PSIscontainer } | Sort-Object @{expression={$_.Name};Descending=$true} | foreach-object {
 						If(!($BkRotate -le 0)) { 
-							If ($_.Name -match ([Regex]::Escape($BkArchiveName))) {
+							If ($_.Name.StartsWith($BkArchiveName, [StringComparison]::OrdinalIgnoreCase)) {
 								Trace (" New      : {0,-48} {1,15:n2} MB " -f $_.Name, $($_.Length / 1MB) ); $totalArchiveBytes += [int64]$_.Length
 							} Else {
 								Trace (" Kept     : {0,-48} {1,15:n2} MB " -f $_.Name, $($_.Length / 1MB) ); $totalArchiveBytes += [int64]$_.Length
 							}
 							
 							# Check is volumized archive
-							If ( (($_.Name -match "(.*)(7z|zip|tar)\.\d{3}$") -and ($_.Name.EndsWith("001"))) -or ($_.Name -match "(.*)(7z|zip|tar)$") ) {
-								$BkRotate += -1
-							} 
+							If ($_.Name -match "\.(7z|zip|tar)(\.001)?$") { $BkRotate += -1 }
 							
 						} Else {
 							Remove-Item -LiteralPath (Join-Path $BkDestPath $_.Name) -ErrorAction "SilentlyContinue" | Out-Null
@@ -2688,8 +2558,8 @@ public class SevenZipOutput {
 			} Else {
 				Trace " Task status : All Done !! Yuppieee"
 			}
-			$MyContext.TotalElapsed = New-TimeSpan $MyContext.SelectionStart $(Get-Date)
-			Trace (" Task time   : {0,0:n0} d : {1,0:n0} h : {2,0:n0} m : {3,0:n0} s" -f $MyContext.TotalElapsed.Days, $MyContext.TotalElapsed.Hours, $MyContext.TotalElapsed.Minutes, $MyContext.TotalElapsed.Seconds )
+			$MyContext.TotalElapsed = (Get-Date) - $MyContext.SelectionStart
+			Trace (" Task time   : {0}" -f (Format-Elapsed $MyContext.TotalElapsed))
 			Trace (" Task end    : {0}`n" -f (Get-Date -f "MMM dd, yyyy hh:mm:ss") )
 			
 		} Else {
@@ -2705,30 +2575,16 @@ public class SevenZipOutput {
 			# 7   - Command line error
 			# 8   - Not Enough memory to complete operation
 			# 255 - User stopped the process
-			If (($Bk7ZipRetc -eq 255)) {
-				$Counters.Criticals += 1
-				Trace " " 
-				Trace " Cancelled ! User has stopped 7-Zip archiving process" 
-				Trace " NO ARCHIVE HAS BEEN CREATED" 
-				If(Test-Path -Path $BkDestFile -PathType Leaf) { Remove-Item -LiteralPath $BkDestFile -Force | Out-Null }
-			} ElseIf (($Bk7ZipRetc -eq 2)) {
-				$Counters.Criticals += 1
-				Trace " " 
-				Trace " Cancelled ! 7-Zip reported a fatal error." 
-				Trace " NO VALID ARCHIVE HAS BEEN CREATED"
-				If(Test-Path -Path $BkDestFile -PathType Leaf) { Remove-Item -LiteralPath $BkDestFile -Force | Out-Null }
-			} ElseIf (($Bk7ZipRetc -eq 7)) {
-				$Counters.Criticals += 1
-				Trace " " 
-				Trace " Cancelled ! 7-Zip has been invoked with a wrong command line." 
-				Trace (" {0}" -f $oProcessStartInfo.Arguments) 
-				Trace " NO VALID ARCHIVE HAS BEEN CREATED" 
-				If(Test-Path -Path $BkDestFile -PathType Leaf) { Remove-Item -LiteralPath $BkDestFile -Force | Out-Null }
-			} ElseIf (($Bk7ZipRetc -eq 8)) {
+			$fatalMessages = @{
+				255 = @(" Cancelled ! User has stopped 7-Zip archiving process", " NO ARCHIVE HAS BEEN CREATED")
+				2   = @(" Cancelled ! 7-Zip reported a fatal error.", " NO VALID ARCHIVE HAS BEEN CREATED")
+				7   = @(" Cancelled ! 7-Zip has been invoked with a wrong command line.", (" {0}" -f $oProcessStartInfo.Arguments), " NO VALID ARCHIVE HAS BEEN CREATED")
+				8   = @(" Cancelled ! 7-Zip reports not enough memory.", " NO VALID ARCHIVE HAS BEEN CREATED")
+			}
+			If ($fatalMessages.ContainsKey([int]$Bk7ZipRetc)) {
 				$Counters.Criticals += 1
 				Trace " "
-				Trace " Cancelled ! 7-Zip reports not enough memory." 
-				Trace " NO VALID ARCHIVE HAS BEEN CREATED" 
+				$fatalMessages[[int]$Bk7ZipRetc] | ForEach-Object { Trace $_ }
 				If(Test-Path -Path $BkDestFile -PathType Leaf) { Remove-Item -LiteralPath $BkDestFile -Force | Out-Null }
 			} ElseIf (!(Test-Path -Path "$BkDestPath\$BkArchiveName" -PathType Leaf)) {
 				$Counters.Criticals += 1

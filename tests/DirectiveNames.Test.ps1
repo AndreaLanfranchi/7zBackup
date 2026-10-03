@@ -51,10 +51,7 @@ $MyContext = [hashtable]::Synchronized(@{ Logger = (New-Object System.Text.Strin
 $BkSelectionContents = @("matchexcludefilesx=abc", "matchexcludepathx=abc", "matchstoprecursex=abc")
 foreach ($name in "matchexcludefiles", "matchexcludepath", "matchstoprecurse") {
 	Remove-Variable -Name $name -Scope Script
-	# Script body block that reads this directive from the selection contents
-	$block = $ast.EndBlock.Statements | Where-Object { ($_ -is [System.Management.Automation.Language.IfStatementAst]) -and ($_.Clauses[0].Item1.Extent.Text -match 'BkSelectionContents') -and ($_.Clauses[0].Item1.Extent.Text -match "\^$name=") } | Select-Object -First 1
-	Assert ($null -ne $block) "precondition, script body block for $name found"
-	. ([scriptblock]::Create($block.Extent.Text))
+	Read-MatchRule $BkSelectionContents $name $name "" ""
 	Assert ($null -eq (Get-Variable -Name $name -Scope Script -ValueOnly)) "$name stays unset"
 }
 
