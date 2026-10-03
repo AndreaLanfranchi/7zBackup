@@ -675,7 +675,7 @@ Function PostArchiving {
 	$archiveAttr = [System.IO.FileAttributes]::Archive
 	$readOnlyAttr = [System.IO.FileAttributes]::ReadOnly
 	foreach ($entry in $BkCompressDetailItems) {
-		If(Test-CtrlCRequest -eq $True) { break; }
+		If(Test-CtrlCRequest) { break; }
 
 		# .NET calls, not Get-Item / Remove-Item: this loop runs once per archived item
 		$path = [System.IO.Path]::Combine($BkRootDir, $entry)
@@ -696,7 +696,7 @@ Function PostArchiving {
 				Trace (" FAILED : {0}" -f $entry); $Counters.Warnings++
 			}
 		} Else {
-			Write-Host " ? " + $path
+			Write-Host (" ? " + $path)
 		}
 
 		$ItemsDone++
@@ -713,6 +713,34 @@ Function PostArchiving {
 	Trace (" Phase time   : {0,0:n0} d : {1,0:n0} h : {2,0:n0} m : {3,0:n3} s" -f $MyContext.PostProcessFilesElapsed.Days, $MyContext.PostProcessFilesElapsed.Hours, $MyContext.PostProcessFilesElapsed.Minutes, ($MyContext.PostProcessFilesElapsed.Seconds + ($MyContext.PostProcessFilesElapsed.MilliSeconds/1000)) )
 	Trace (" Performance  : {0,0:n2} files/sec`n" -f ($ItemsDone / $MyContext.PostProcessFilesElapsed.TotalSeconds ) )
 	
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Add-Exclusion
+# -----------------------------------------------------------------------------
+# Description	: Records an item left out of the selection in the exclusions list
+# Parameters    : [string]$rule - The rule which excluded the item
+#                 [string]$kind - "F" for a file, "D" for a directory
+#                 [string]$name - Real name of the item
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Add-Exclusion ([string]$rule, [string]$kind, [string]$name) {
+	$SWriters.Exclusions.WriteLine(("{0}`t{1}`t{2}`t{3}" -f $Counters.Exclusions++, $rule, $kind, $name))
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Add-ScanException
+# -----------------------------------------------------------------------------
+# Description	: Records an error met while scanning or cleaning up an item
+#				  in the exceptions list and traces its id
+# Parameters    : $errorObject  - The error caught
+#                 [string]$name - Real name of the item
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Add-ScanException ($errorObject, [string]$name) {
+	$id = $Counters.Exceptions++
+	$SWriters.Exceptions.WriteLine(("{0}`t{1}`t{2}" -f $id, $errorObject.GetType().Name, $name))
+	Trace (" Exception id {0} on {1} " -f $id, $name)
 }
 
 # -----------------------------------------------------------------------------
@@ -765,8 +793,7 @@ Function ProcessFolder ($thisFolder) {
 					[System.IO.Directory]::Delete($folderToBeNuked.FullName, $True)
 				} Catch { $childDirRemoveError = $_.Exception.GetBaseException() }
 				If($childDirRemoveError) {
-					$SWriters.Exceptions.WriteLine([string]("{0}`t{1}`t{2}" -f $Counters.Exceptions++, $childDirRemoveError.GetType().Name, $thisFolder.RealName))
-					Trace (" Exception id {0} on {1} " -f ($Counters.Exceptions - 1), $thisFolder.RealName)
+					Add-ScanException $childDirRemoveError $thisFolder.RealName
 				}
 			} Else {
 				Trace (" Would remove {0} " -f $thisFolder.RealName)
@@ -776,18 +803,18 @@ Function ProcessFolder ($thisFolder) {
 	}
 	If(($matchexcludepath) -and ($thisFolder.RelativeName -imatch $matchexcludepath)) {
 		$scanThisPathForFiles = $False 
-		$SWriters.Exclusions.WriteLine([string]("{0}`t{1}`t{2}`t{3}" -f $Counters.Exclusions++, "matchexcludepath", "D", $thisFolder.RealName))
+		Add-Exclusion "matchexcludepath" "D" $thisFolder.RealName
 	}
 	If((Test-Variable "BkMaxDepth") -and ($thisFolder.Depth -eq [int]$BkMaxDepth)) {
 		$scanThisPathForRecursion = $False
-		$SWriters.Exclusions.WriteLine([string]("{0}`t{1}`t{2}`t{3}" -f $Counters.Exclusions++, "maxdepth", "D", $thisFolder.RealName))
+		Add-Exclusion "maxdepth" "D" $thisFolder.RealName
 	}
 	If( ($scanThisPathForRecursion) -and (($matchstoprecurse) -and ($thisFolder.RelativeName -imatch $matchstoprecurse )) ) {
 		$scanThisPathForRecursion = $False
-		$SWriters.Exclusions.WriteLine([string]("{0}`t{1}`t{2}`t{3}" -f $Counters.Exclusions++, "matchstoprecurse", "D", $thisFolder.RealName))
+		Add-Exclusion "matchstoprecurse" "D" $thisFolder.RealName
 	}
 	
-	If(Test-CtrlCRequest -eq $True) { return }
+	If(Test-CtrlCRequest) { return }
 	# Early exit if we do not have to scan anything
 	If(!$scanThisPathForFiles -and !$scanThisPathForRecursion) { return }
 	
@@ -802,8 +829,7 @@ Function ProcessFolder ($thisFolder) {
 	Try { $childItems = @(([System.IO.DirectoryInfo]([System.IO.Path]::Combine($BkRootDir, $thisFolder.RelativeName))).GetFileSystemInfos()) }
 	Catch { $childItemsScanError = $_.Exception.GetBaseException() }
 	If($childItemsScanError) {
-		$SWriters.Exceptions.WriteLine(("{0}`t{1}`t{2}" -f $Counters.Exceptions++, $childItemsScanError.GetType().Name, $thisFolder.RealName))
-		Trace (" Exception id {0} on {1} " -f ($Counters.Exceptions - 1), $thisFolder.RealName)
+		Add-ScanException $childItemsScanError $thisFolder.RealName
 	}
 
 	# Status
@@ -851,8 +877,7 @@ Function ProcessFolder ($thisFolder) {
 							[System.IO.File]::Delete($childFile.FullName)
 						} Catch { $childFileRemoveError = $_.Exception.GetBaseException() }
 						If($childFileRemoveError) {
-							$SWriters.Exceptions.WriteLine([string]("{0}`t{1}`t{2}" -f $Counters.Exceptions++, $childFileRemoveError.GetType().Name, $childFileRealName))
-							Trace (" Exception id {0} on {1} " -f ($Counters.Exceptions - 1), $childFileRealName)
+							Add-ScanException $childFileRemoveError $childFileRealName
 							continue
 						}
 					} Else {
@@ -870,37 +895,37 @@ Function ProcessFolder ($thisFolder) {
 				
 				# Match Include ?
 				If(($matchincludefiles) -and ($childFile.Name -notmatch $matchincludefiles) ) { 
-					$SWriters.Exclusions.WriteLine([string]("{0}`t{1}`t{2}`t{3}" -f $Counters.Exclusions++, "matchincludefiles", "F", $childFileRealName))
+					Add-Exclusion "matchincludefiles" "F" $childFileRealName
 					continue
 				}
 				
 				# Match Exclude ?
 				If(($matchexcludefiles) -and ($childFile.Name -match $matchexcludefiles) ) { 
-					$SWriters.Exclusions.WriteLine([string]("{0}`t{1}`t{2}`t{3}" -f $Counters.Exclusions++, "matchexcludefiles", "F", $childFileRealName))
+					Add-Exclusion "matchexcludefiles" "F" $childFileRealName
 					continue
 				}
 
 				# Check the file falls into MaxFileAge
 				If(($BkMaxFileAge) -and (($MyContext.SelectionStart - $childFile.LastWriteTime).TotalDays -gt $BkMaxFileAge) ) {
-					$SWriters.Exclusions.WriteLine([string]("{0}`t{1}`t{2}`t{3}" -f $Counters.Exclusions++, "maxfileage", "F", $childFileRealName))
+					Add-Exclusion "maxfileage" "F" $childFileRealName
 					continue
 				}
 	
 				# Check the file falls into MinFileAge
 				If(($BkMinFileAge) -and (($MyContext.SelectionStart - $childFile.LastWriteTime).TotalDays -lt $BkMinFileAge) ) {
-					$SWriters.Exclusions.WriteLine([string]("{0}`t{1}`t{2}`t{3}" -f $Counters.Exclusions++, "minfileage", "F", $childFileRealName))
+					Add-Exclusion "minfileage" "F" $childFileRealName
 					continue
 				}
 
 				# Check the file falls into MaxFileSize
 				If(($BkMaxFileSize) -and ($childFile.Length -gt $BkMaxFileSize) ) {
-					$SWriters.Exclusions.WriteLine([string]("{0}`t{1}`t{2}`t{3}" -f $Counters.Exclusions++, "maxfilesize", "F", $childFileRealName))
+					Add-Exclusion "maxfilesize" "F" $childFileRealName
 					continue
 				}
 
 				# Check the file falls into MinFileSize
 				If(($BkMinFileSize) -and ($childFile.Length -lt $BkMinFileSize) ) {
-					$SWriters.Exclusions.WriteLine([string]("{0}`t{1}`t{2}`t{3}" -f $Counters.Exclusions++, "minfilesize", "F", $childFileRealName))
+					Add-Exclusion "minfilesize" "F" $childFileRealName
 					continue
 				}
 
@@ -918,7 +943,7 @@ Function ProcessFolder ($thisFolder) {
 	}
 	
 	# Process Directories Within The Container
-	If($scanThisPathForRecursion -And (!(Test-CtrlCRequest -eq $True))) {
+	If($scanThisPathForRecursion -And (!(Test-CtrlCRequest))) {
 		$childFolders = @($childItems | Where-Object { $_ -is [System.IO.DirectoryInfo] })
 		If($childFolders.Count) {
 			# Queue children right after this folder, in order. Skipped junctions take no slot
@@ -936,7 +961,7 @@ Function ProcessFolder ($thisFolder) {
 				
 				# Check subdir against recursion in junctions
 				If(($BkNoFollowJunctions) -and ($childFolders[$i].Attributes -band 1024)) {
-					$SWriters.Exclusions.WriteLine([string]("{0}`t{1}`t{2}`t{3}" -f $Counters.Exclusions++, "nofollowjunctions", "D", $childFolderItem.RealName))
+					Add-Exclusion "nofollowjunctions" "D" $childFolderItem.RealName
 					continue
 				}
 				
@@ -2396,7 +2421,7 @@ If(($Counters.FilesSelected -lt 1) -or (Test-CtrlCRequest)) {
 		}
 	}
 	
-	If(!(Test-CtrlCRequest -eq $True)) {
+	If(!(Test-CtrlCRequest)) {
 		# Do some stats (many thanks to http://www.hanselman.com/blog/ParsingCSVsAndPoorMansWebLogAnalysisWithPowerShell.aspx)
 		Write-Progress -Activity "Calculating Stats on Selection" -Status "Running ..." -CurrentOperation "Please Wait ..."
 		$statsByExtension = $Counters.Extensions.GetEnumerator() | Select-Object @{Name="Name";Expression={$_.Key}}, @{Name="Count";Expression={$_.Value[0]}}, @{Name="Size";Expression={$_.Value[1]}} | Sort-Object Size -desc
@@ -2571,7 +2596,7 @@ public class SevenZipOutput {
 			
 			
 			Write-Progress -Activity "Archiving into $BkDestFile" -Status $Status -CurrentOperation "Please wait ..."
-			If(Test-CtrlCRequest -eq $True) {
+			If(Test-CtrlCRequest) {
 				[void]$oProcess.Kill()
 				While (!($oProcess.HasExited)) { Start-Sleep -Milliseconds 100 }
 				Set-Variable -Name Bk7ZipRetc -value ([int]255) -scope Script				# Force return code to 255
