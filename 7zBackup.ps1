@@ -729,9 +729,8 @@ Function PostArchiving {
 	}
 	
 	Write-Progress -Activity "." -Status "." -Completed
-	$MyContext.PostProcessFilesEnd = Get-Date
-	$MyContext.PostProcessFilesElapsed = New-TimeSpan $MyContext.PostProcessFilesStart $MyContext.PostProcessFilesEnd
-	Trace (" Phase time   : {0,0:n0} d : {1,0:n0} h : {2,0:n0} m : {3,0:n3} s" -f $MyContext.PostProcessFilesElapsed.Days, $MyContext.PostProcessFilesElapsed.Hours, $MyContext.PostProcessFilesElapsed.Minutes, ($MyContext.PostProcessFilesElapsed.Seconds + ($MyContext.PostProcessFilesElapsed.MilliSeconds/1000)) )
+	$MyContext.PostProcessFilesElapsed = (Get-Date) - $MyContext.PostProcessFilesStart
+	Trace (" Phase time   : {0}" -f (Format-Elapsed $MyContext.PostProcessFilesElapsed))
 	Trace (" Performance  : {0,0:n2} files/sec`n" -f ($ItemsDone / $MyContext.PostProcessFilesElapsed.TotalSeconds ) )
 	
 }
@@ -1493,6 +1492,17 @@ Function Resolve-AddressList ([string]$name, [string]$label) {
 Function Trace ($message) {
 	Write-Host ($message) 
 	[void]$MyContext.Logger.AppendLine($message)
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Format-Elapsed
+# -----------------------------------------------------------------------------
+# Description	: Formats a time span as "d : h : m : s" for the log
+# Parameters    : [timespan]$span - The time span to format
+# Returns       : [string]
+# -----------------------------------------------------------------------------
+Function Format-Elapsed ([timespan]$span) {
+	"{0,0:n0} d : {1,0:n0} h : {2,0:n0} m : {3,0:n3} s" -f $span.Days, $span.Hours, $span.Minutes, ($span.Seconds + $span.Milliseconds / 1000)
 }
 
 # -----------------------------------------------------------------------------
@@ -2289,11 +2299,10 @@ $SWriters.GetEnumerator() | ForEach-Object {
 
 
 # Calc of elapsed time for selection process
-$MyContext.SelectionEnd = Get-Date
-$MyContext.SelectionElapsed = New-TimeSpan $MyContext.SelectionStart $MyContext.SelectionEnd
+$MyContext.SelectionElapsed = (Get-Date) - $MyContext.SelectionStart
 
 # Trace informations about what is selected
-Trace (" Phase time   : {0,0:n0} d : {1,0:n0} h : {2,0:n0} m : {3,0:n3} s" -f $MyContext.SelectionElapsed.Days, $MyContext.SelectionElapsed.Hours, $MyContext.SelectionElapsed.Minutes, ($MyContext.SelectionElapsed.Seconds + ($MyContext.SelectionElapsed.MilliSeconds/1000)) )
+Trace (" Phase time   : {0}" -f (Format-Elapsed $MyContext.SelectionElapsed))
 Trace (" Selected     : {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3,0:n2} MBytes to backup" -f  $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, ($Counters.BytesSelected/1mb))
 Trace (" Performance  : {0,0:n2} files/sec " -f ( $Counters.FilesProcessed / $MyContext.SelectionElapsed.TotalSeconds ) )
 
@@ -2529,8 +2538,7 @@ public class SevenZipOutput {
 		Set-DefaultVariable "Bk7ZipRetc" $oProcess.ExitCode
 		
 		# Stop the clock
-		$MyContext.CompressionEnd = Get-Date
-		$MyContext.CompressionElapsed = New-TimeSpan $MyContext.CompressionStart $MyContext.CompressionEnd
+		$MyContext.CompressionElapsed = (Get-Date) - $MyContext.CompressionStart
 		
 		
 		# Close StreamWriter for Compress Details
@@ -2577,7 +2585,7 @@ public class SevenZipOutput {
 			# Output informations in log file 
 			Trace (" Created      : {1} in {0} " -f $BkDestPath, $BkArchiveName)
 			Trace (" Archive Size : {0,0:n2} MB = {1,2:n2}% of original size" -f ($ArchiveSize / 1Mb), ((($ArchiveSize / $Counters.BytesSelected)) * 100))
-			Trace (" 7zip time    : {0,0:n0} d : {1,0:n0} h : {2,0:n0} m : {3,0:n3} s" -f $MyContext.CompressionElapsed.Days, $MyContext.CompressionElapsed.Hours, $MyContext.CompressionElapsed.Minutes, ($MyContext.CompressionElapsed.Seconds + $MyContext.CompressionElapsed.Milliseconds / 1000) )
+			Trace (" 7zip time    : {0}" -f (Format-Elapsed $MyContext.CompressionElapsed))
 			Trace (" Performance  : {0,0:n2} files/sec" -f ($Counters.FilesSelected / $MyContext.CompressionElapsed.TotalSeconds) )
 			Trace (" IO Avg Speed : Read {0,0:n2} MB/Sec / Write {1,0:n2} MB/Sec" -f (($Counters.BytesSelected / $MyContext.CompressionElapsed.TotalSeconds) / 1MB), (($ArchiveSize / $MyContext.CompressionElapsed.TotalSeconds) / 1MB) )
 			Trace " "
@@ -2629,8 +2637,8 @@ public class SevenZipOutput {
 			} Else {
 				Trace " Task status : All Done !! Yuppieee"
 			}
-			$MyContext.TotalElapsed = New-TimeSpan $MyContext.SelectionStart $(Get-Date)
-			Trace (" Task time   : {0,0:n0} d : {1,0:n0} h : {2,0:n0} m : {3,0:n0} s" -f $MyContext.TotalElapsed.Days, $MyContext.TotalElapsed.Hours, $MyContext.TotalElapsed.Minutes, $MyContext.TotalElapsed.Seconds )
+			$MyContext.TotalElapsed = (Get-Date) - $MyContext.SelectionStart
+			Trace (" Task time   : {0}" -f (Format-Elapsed $MyContext.TotalElapsed))
 			Trace (" Task end    : {0}`n" -f (Get-Date -f "MMM dd, yyyy hh:mm:ss") )
 			
 		} Else {

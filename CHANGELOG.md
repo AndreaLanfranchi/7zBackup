@@ -5,6 +5,7 @@ Ui (user interface). Some old entries use Minor or New, or have no category.
 
 ## Unreleased
 
+- Code: Format-Elapsed writes the four phase times of the log, and the unused SelectionEnd, CompressionEnd and PostProcessFilesEnd values are gone. Task time now shows seconds with decimals like the other times
 - Code: The six match* selection blocks are read by one function (Read-MatchRule). matchincludefiles values are now trimmed like the others
 - Bug: New-RootDir error messages named an undefined variable instead of the root directory
 - Bug: --type FULL named the archive with FULL and --type full with full: the validated type is now kept in lower case (#16)
