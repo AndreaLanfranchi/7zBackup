@@ -38,8 +38,16 @@ Function Get-Errors ([string]$type) {
 Write-Host "`n Case: the type is kept in lower case, whatever its spelling"
 foreach ($spelling in "full", "FULL", "Incr", "dIFF", "COPY", "Move") {
 	$errors = @(Get-Errors $spelling)
-	Assert (@($errors | Where-Object { $_ -match "--type" }).Count -eq 0 -and $BkType -ceq $spelling.ToLower()) "--type $spelling is accepted and becomes $($spelling.ToLower()) [$BkType]"
+	Assert (@($errors | Where-Object { $_ -match "--type" }).Count -eq 0 -and $BkType -ceq $spelling.ToLowerInvariant()) "--type $spelling is accepted and becomes $($spelling.ToLowerInvariant()) [$BkType]"
 }
+
+Write-Host "`n Case: the lower case does not depend on the culture (Turkish turns I into a dotless i)"
+$savedCulture = [System.Threading.Thread]::CurrentThread.CurrentCulture
+[System.Threading.Thread]::CurrentThread.CurrentCulture = [System.Globalization.CultureInfo]::GetCultureInfo("tr-TR")
+$errors = @(Get-Errors "INCR")
+$culturePrecondition = "INCR".ToLower() -cne "incr"   # false when the system has no Turkish culture data
+[System.Threading.Thread]::CurrentThread.CurrentCulture = $savedCulture
+Assert (@($errors | Where-Object { $_ -match "--type" }).Count -eq 0 -and $BkType -ceq "incr") "--type INCR becomes incr under tr-TR [$BkType]$(If(!$culturePrecondition) { ' (tr-TR not available here: weak check)' })"
 
 Write-Host "`n Case: the archive bit default follows the type, not its spelling"
 foreach ($case in @(@("FULL", $True), @("Incr", $True), @("DIFF", $False), @("Copy", $False), @("MOVE", $False))) {
