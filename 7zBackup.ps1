@@ -2339,64 +2339,32 @@ If(($Counters.FilesSelected -lt 1) -or (Test-CtrlCRequest)) {
 		Write-Progress -Activity "Archiving into $BkDestFile" -Status "Please wait ..." -CurrentOperation "Initializing ..."	
 
 		# Compose arguments which will be passed to command line
-		$Bk7ZipArgs = @()
-		$Bk7ZipArgs += "a"																	# This is the "add" switch (means add and update)
-		$Bk7ZipArgs += "-ssw"																# Archive files open for writing
-		$Bk7ZipArgs += "-slp"																# Use large memory pages
-		
-		If((Test-Variable "BkArchiveCompression") -And ($BkArchiveType -ne "tar")) { 		# Set compression level
-			$Bk7ZipArgs += ("-mx{0}" -f $BkArchiveCompression)
-		}
-		# Important !!!
-		$Bk7ZipArgs += "-scsUTF-8"															# Set charset for list files to UTF8
-		$Bk7ZipArgs += "-sccUTF-8"															# Set charset for console input/output to UTF-8 (password input, output decoding)
+		$Bk7ZipArgs = @("a", "-ssw", "-slp")												# Add and update, archive files open for writing, large memory pages
+		If((Test-Variable "BkArchiveCompression") -And ($BkArchiveType -ne "tar")) { $Bk7ZipArgs += "-mx$BkArchiveCompression" }
+		# Charset for list files and for console input/output (password input, output decoding) is UTF-8. -bd disables the progress indicator
+		$Bk7ZipArgs += "-scsUTF-8", "-sccUTF-8", "-bd"
 		
 		# If 7zip is beyond version 9.2 then add some more switches
 		If ([int]$MyContext.SevenZBinVersionInfo.Major -ge 15) {
-			$Bk7ZipArgs += "-bd"															# Disable Progress indicator
-			$Bk7ZipArgs += "-bb1"
-			$Bk7ZipArgs += "-bsp0"
-			$Bk7ZipArgs += "-bso1"
-			$Bk7ZipArgs += "-bse2"
-			If($BkArchiveType -eq "7z") {
-				$Bk7ZipArgs += "-mtm=on"													# Stores last Modified timestamps for files.
-				$Bk7ZipArgs += "-mtc=on"													# Stores Creation timestamps for files.
-				$Bk7ZipArgs += "-mta=on"													# Stores last Access timestamps for files.
-			}
-		} Else {
-			$Bk7ZipArgs += "-bd"															# Disable Progress indicator
+			$Bk7ZipArgs += "-bb1", "-bsp0", "-bso1", "-bse2"
+			If($BkArchiveType -eq "7z") { $Bk7ZipArgs += "-mtm=on", "-mtc=on", "-mta=on" }		# Store modified, creation and access timestamps
 		}
 		
 		# Control Threading
 		If(Test-Variable "BkArchiveThreads") {
-			If($BkArchiveThreads -lt 1) {
-				$Bk7ZipArgs += "-mmt=off"													# Disable multi threading
-			} Else {
-				$Bk7ZipArgs += ("-mmt={0}" -f $BkArchiveThreads)							# Use exact number of threads
-			}
+			If($BkArchiveThreads -lt 1) { $Bk7ZipArgs += "-mmt=off" } Else { $Bk7ZipArgs += "-mmt=$BkArchiveThreads" }
 		}
 		
-		# Control solid archives															
-		If(($BkArchiveType -eq "7z") -And !($BkArchiveSolid)) {
-			$Bk7ZipArgs += "-ms=off"													    # Disable solid archive
-		}
+		# Control solid archives and volumes
+		If(($BkArchiveType -eq "7z") -And !($BkArchiveSolid)) { $Bk7ZipArgs += "-ms=off" }
+		If(Test-Variable "BkArchiveVolumes") { $Bk7ZipArgs += @($BkArchiveVolumes | ForEach-Object { "-v$_" }) }
 	
-		# Control volumes																	# Apply Volumes Policies
-		If((Test-Variable "BkArchiveVolumes") -eq $True) {
-			$BkArchiveVolumes | ForEach-Object {
-				$Bk7ZipArgs += ("-v{0}" -f $_)
-			}
-		}
-	
-		$Bk7ZipArgs += "-t" + $BkArchiveType												# This is the type of the archive
+		$Bk7ZipArgs += "-t$BkArchiveType"
 		If(Test-Variable "BkArchivePassword") { 
 			$Bk7ZipArgs += "-p" 											# Password prompt: the password goes to 7-Zip input, never on the command line
 			If($BkEncryptHeaders) { $Bk7ZipArgs += "-mhe" }
 		}
-		
-		
-		$Bk7ZipArgs += "`"$BkDestFile`""													# This is the destination file
-		$Bk7ZipArgs += "`@`"$BkCatalogInclude`""											# This is the catalog input file
+		$Bk7ZipArgs += "`"$BkDestFile`"", "`@`"$BkCatalogInclude`""								# The destination file and the catalog input file
 		
 		# Create Process
 		If(Test-Variable "Bk7ZipRetc") { Remove-Variable -Name Bk7ZipRetc }
