@@ -79,7 +79,7 @@ Remove-Item -LiteralPath $work -Recurse -Force
 
 Write-Host "`n Case: last lines arrive after 7-Zip is seen as exited"
 # A background child keeps the output pipes open: the fake 7-Zip exits at once, its last lines
-# (the very last one without a newline) arrive about 4 seconds later, after the polling loop ended
+# (the very last one without a newline) arrive about 4 seconds later. The test checks the order of events, not elapsed time
 $work      = Join-Path $env:TEMP ("7zb-test-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 $BkRootDir = Join-Path $work "root"
 New-Item -ItemType Directory $BkRootDir, "$work\dest" -Force | Out-Null
@@ -93,6 +93,7 @@ $lateCmd = Join-Path $work "late.cmd"
 Set-Content -LiteralPath $lateCmd -Encoding Ascii -Value @(
 	'@echo off',
 	'ping -n 5 127.0.0.1 >nul',
+	('echo late> "{0}"' -f "$work\late-start.txt"),   # marks the moment the late lines are written
 	('type "{0}"' -f "$work\late-out.txt"),
 	('type "{0}" 1>&2' -f "$work\late-err.txt")
 )
@@ -118,7 +119,8 @@ $detail   = @([System.IO.File]::ReadAllLines($BkCompressDetail))
 $logLines = @($MyContext.Logger.ToString().Split("`n") | ForEach-Object { $_.TrimEnd() } | Where-Object { $_.StartsWith(" !") })
 
 Assert ($Bk7ZipRetc -eq 1)                                                          "precondition, the fake 7-Zip exits with 1"
-Assert (($oProcess.ExitTime - $MyContext.CompressionStart).TotalSeconds -lt 2)      "precondition, the fake 7-Zip exits at once [$(($oProcess.ExitTime - $MyContext.CompressionStart).TotalSeconds) s]"
+$lateStart = (Get-Item -LiteralPath "$work\late-start.txt").LastWriteTime
+Assert ($oProcess.ExitTime -lt $lateStart)                                          "precondition, the fake 7-Zip exited before the late lines were written [exit $($oProcess.ExitTime.ToString('HH:mm:ss.fff')), late $($lateStart.ToString('HH:mm:ss.fff'))]"
 Assert (($detail -join "|") -eq "+ Alias\early.txt|+ Alias\late.txt")               "Compress-Detail.txt has the late stdout line [$($detail -join ' | ')]"
 Assert (($logLines -join "|") -eq " !early err| !late err 1| !late err 2")          "late stderr lines are logged, the last one without a newline too [$($logLines -join ' | ')]"
 
