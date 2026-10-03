@@ -5,6 +5,7 @@ Ui (user interface). Some old entries use Minor or New, or have no category.
 
 ## Unreleased
 
+- Code: The six match* selection blocks are read by one function (Read-MatchRule). matchincludefiles values are now trimmed like the others
 - Bug: New-RootDir error messages named an undefined variable instead of the root directory
 - Bug: --type FULL named the archive with FULL and --type full with full: the validated type is now kept in lower case (#16)
 - Code: Command line arguments are read from two tables (options with a value, switches) instead of a 42-case switch (#16)
