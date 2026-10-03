@@ -1196,7 +1196,7 @@ Function Send-Notification {
 		
 		Try {
 		
-			If(!(Test-Variable "BkMailSubject")) { Set-Variable -name "BkMailSubject" -value ("7zBackup Report Host $Env:ComputerName") -scope Script }
+			Set-DefaultVariable "BkMailSubject" ("7zBackup Report Host $Env:ComputerName")
 			If(Test-Variable "BkMailKitPath") {
 				Send-MailKitNotification
 				Write-Host " Done`n " -ForeGroundColor Green
@@ -1401,8 +1401,93 @@ Function Test-Path-Writable {
 # -----------------------------------------------------------------------------
 Function Test-Variable { 
 	param([string]$varName = $(throw "You must provide a variable name"))
-	Get-Variable -name $varName -scope Script | Out-Null
-	Write-Output $?
+	$null -ne (Get-Variable -Name $varName -Scope Script -ErrorAction SilentlyContinue)
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Set-DefaultVariable
+# -----------------------------------------------------------------------------
+# Description	: Sets a script variable unless it has already been set
+# Parameters    : [string]$name - The name of the variable
+#                 $value        - The default value
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Set-DefaultVariable ([string]$name, $value) {
+	If(!(Test-Variable $name)) { Set-Variable -Name $name -Value $value -Scope Script }
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Resolve-Choice
+# -----------------------------------------------------------------------------
+# Description	: Finds a value among the allowed ones, ignoring case
+# Parameters    : [string]$value     - The value to look for
+#                 [string[]]$choices - The allowed values
+# Returns       : The allowed value as spelled in $choices, or $null
+# -----------------------------------------------------------------------------
+Function Resolve-Choice ([string]$value, [string[]]$choices) {
+	$choices | Where-Object { $_ -ieq $value } | Select-Object -First 1
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Resolve-BooleanVariable
+# -----------------------------------------------------------------------------
+# Description	: Turns a script variable, if set, into a boolean. When it is
+#				  not a valid boolean the variable is removed
+# Parameters    : [string]$name         - The name of the variable
+#                 [string]$errorMessage - What to report when it is not valid
+# Returns       : The error message if any
+# -----------------------------------------------------------------------------
+Function Resolve-BooleanVariable ([string]$name, [string]$errorMessage) {
+	If(!(Test-Variable $name)) { Return }
+	$boolean = $False
+	If([bool]::TryParse((Get-Variable -Name $name -Scope Script -ValueOnly), [ref]$boolean)) {
+		Set-Variable -Name $name -Value $boolean -Scope Script
+	} Else {
+		Write-Output $errorMessage
+		Remove-Variable -Name $name -Scope Script
+	}
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Resolve-IntegerVariable
+# -----------------------------------------------------------------------------
+# Description	: Turns a script variable, if set, into an integer within the
+#				  given range. When it is not valid the variable is removed
+# Parameters    : [string]$name         - The name of the variable
+#                 [int64]$minimum       - Lowest valid value
+#                 [int64]$maximum       - Highest valid value
+#                 [string]$errorMessage - What to report when it is not valid
+# Returns       : The error message if any
+# -----------------------------------------------------------------------------
+Function Resolve-IntegerVariable ([string]$name, [int64]$minimum, [int64]$maximum, [string]$errorMessage) {
+	If(!(Test-Variable $name)) { Return }
+	$number = [int64]0
+	$valid = [int64]::TryParse((Get-Variable -Name $name -Scope Script -ValueOnly), [ref]$number)
+	If($valid) {
+		Set-Variable -Name $name -Value $number -Scope Script
+		$valid = ($number -ge $minimum) -and ($number -le $maximum)
+	}
+	If(!$valid) {
+		Write-Output $errorMessage
+		Remove-Variable -Name $name -Scope Script
+	}
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Resolve-AddressList
+# -----------------------------------------------------------------------------
+# Description	: Keeps the valid email addresses of a script variable (a
+#				  single address or a list). Invalid ones are reported as
+#				  warnings. When none is left the variable is removed
+# Parameters    : [string]$name  - The name of the variable
+#                 [string]$label - The command line argument it comes from
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Resolve-AddressList ([string]$name, [string]$label) {
+	$addresses = @((Get-Variable -Name $name -Scope Script -ErrorAction SilentlyContinue).Value)
+	$addresses | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid {0} address {1} ignored" -f $label, $_); $Counters.Warnings++ }
+	$valid = @($addresses | Where-Object {IsValidEmailAddress $_})
+	If($valid.Count -gt 0) { Set-Variable -Name $name -Value $valid -Scope Script } Else { Remove-Variable -Name $name -Scope Script -ErrorAction SilentlyContinue }
 }
 
 # -----------------------------------------------------------------------------
@@ -1579,31 +1664,17 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Clear Archive Bit Policy - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
-	If((Test-Variable "BkClearBit") -eq $True) {
-		Set-Variable -name b -value $True -scope Local
-		If([system.boolean]::tryparse($BkClearBit,[ref]$b)) {
-			Set-Variable -name BkClearBit -value $b -scope Script
-		} Else {
-			Write-Output "Value $BkClearBit for --clearbit argument is not valid boolean value."
-			Remove-Variable -name BkClearBit -scope Script
-		}
-		Remove-Variable -name b -scope Local
-	}
+	Resolve-BooleanVariable "BkClearBit" "Value $BkClearBit for --clearbit argument is not valid boolean value."
 	
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Backup Type - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
-	If(!(Test-Variable "BkType")) {
+	# Each backup type clears the archive bit by default, or not
+	$clearBitDefaults = @{ full = $True; incr = $True; diff = $False; copy = $False; move = $False }
+	If(!(Test-Variable "BkType") -Or !$clearBitDefaults.ContainsKey([string]$BkType)) {
 		Write-Output  "Missing or invalid --type argument"
 	} Else {
-		Switch ($BkType) {
-			"full" { $BkType = "full"; If(!(Test-Variable "BkClearBit")) { Set-Variable -name BkClearBit -value $True -scope Script } }
-			"incr" { $BkType = "incr"; If(!(Test-Variable "BkClearBit")) { Set-Variable -name BkClearBit -value $True -scope Script } }
-			"diff" { $BkType = "diff"; If(!(Test-Variable "BkClearBit")) { Set-Variable -name BkClearBit -value $False -scope Script } }
-			"copy" { $BkType = "copy"; If(!(Test-Variable "BkClearBit")) { Set-Variable -name BkClearBit -value $False -scope Script } }
-			"move" { $BkType = "move"; If(!(Test-Variable "BkClearBit")) { Set-Variable -name BkClearBit -value $False -scope Script } }
-			Default { Write-Output  "Missing or invalid --type argument" }
-		}	
+		Set-DefaultVariable "BkClearBit" $clearBitDefaults[[string]$BkType]
 	}
 
 	# --------------------------------------------------------------------------------------------------------------------------
@@ -1612,7 +1683,7 @@ Function Assert-Variables {
 	# If missing or set to "auto" we will assume drive letter for TEMP path.
 	# If passed from command line arguments we have to check is a valid drive letter
 	# and path is writable and, of course, is NTFS filesystem
-	If(!(Test-Variable "BkWorkDrive")) { Set-Variable -name BkWorkDrive -value "auto" -scope Script }
+	Set-DefaultVariable "BkWorkDrive" "auto"
 	If($BkWorkDrive -ieq "auto") { Set-Variable -name BkWorkDrive -value ($Env:Temp).Substring(0,1) -scope Script }
 	If (
 		($BkWorkDrive -ieq "") -or
@@ -1704,16 +1775,9 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Archive Type - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
-	If(!(Test-Variable "BkArchiveType")) { 
-		Set-Variable -name BkArchiveType -value "7z" -scope Script
-	} Else { 
-		Switch ($BkArchiveType) {
-			"7z"    { Set-Variable -name BkArchiveType -value "7z"  -scope Script }
-			"zip"   { Set-Variable -name BkArchiveType -value "zip" -scope Script }
-			"tar"   { Set-Variable -name BkArchiveType -value "tar" -scope Script }
-			Default { Write-Output "Missing or invalid --archivetype argument" }
-		}
-	}
+	Set-DefaultVariable "BkArchiveType" "7z"
+	$archiveType = Resolve-Choice $BkArchiveType "7z", "zip", "tar"
+	If($archiveType) { Set-Variable -Name BkArchiveType -Value $archiveType -Scope Script } Else { Write-Output "Missing or invalid --archivetype argument" }
 
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Archive Compression - Checks
@@ -1729,18 +1793,8 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Solid archive policy - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
-	If((Test-Variable "BkArchiveSolid") -eq $True) {
-		Set-Variable -name b -value $True -scope Local
-		If([system.boolean]::tryparse($BkArchiveSolid,[ref]$b)) {
-			Set-Variable -name BkArchiveSolid -value $b -scope Script
-		} Else {
-			Write-Output "Provided value for --solid argument is not valid boolean value."
-			Remove-Variable -name BkArchiveSolid -scope Script
-		}
-		Remove-Variable -name b -scope Local
-	} Else {
-		Set-Variable -name "BkArchiveSolid" -value $True -scope Script
-	}
+	Set-DefaultVariable "BkArchiveSolid" $True
+	Resolve-BooleanVariable "BkArchiveSolid" "Provided value for --solid argument is not valid boolean value."
 	
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Volumes archive policy - Checks
@@ -1783,39 +1837,13 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Archive Rotation Policy - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
-	If((Test-Variable "BkRotate")) {
-		Set-Variable -name i -value ([int]0) -scope Local
-		If(([system.int64]::tryparse($BkRotate,[ref]$i))) {
-			Set-Variable -name BkRotate -value $i -scope Script
-			If(!($BkRotate -gt 0)) {
-				Write-Output "Missing or invalid --rotate argument. Must be positive integer"
-				Remove-Variable -name BkRotate -scope Script
-			}
-		} Else {
-			Write-Output "Missing or invalid --rotate argument. Must be positive integer"
-			Remove-Variable -name BkRotate -scope Script
-		}
-		Remove-Variable -name i -scope Local
-	}
+	Resolve-IntegerVariable "BkRotate" 1 ([int64]::MaxValue) "Missing or invalid --rotate argument. Must be positive integer"
 
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Max Recursion Depth Policy - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Max depth to honor while scanning
-	If(Test-Variable "BkMaxDepth") {
-		Set-Variable -name i -value ([int]0) -scope Local
-		If(([system.int64]::tryparse($BkmaxDepth,[ref]$i))) {
-			Set-Variable -name BkMaxDepth -value $i -scope Script
-			If(($BkMaxDepth -lt 0)) {
-				Write-Output "Missing or invalid --maxdepth argument. Must be positive integer"
-				Remove-Variable -name BkMaxdepth -scope Script
-			} 
-		} Else {
-			Write-Output "Missing or invalid --maxdepth argument. Must be positive integer"
-			Remove-Variable -name BkMaxDepth -scope Script
-		}
-		Remove-Variable -name i -scope Local
-	}
+	Resolve-IntegerVariable "BkMaxDepth" 0 ([int64]::MaxValue) "Missing or invalid --maxdepth argument. Must be positive integer"
 
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Email Notification - Checks
@@ -1825,52 +1853,19 @@ Function Assert-Variables {
 		# ----------------------------------------------------------------------------------------------------------------------
 		# To Email Address(es) - Checks
 		# ----------------------------------------------------------------------------------------------------------------------
-		If(!($BkNotifyLog -is [array])) { 
-			Set-Variable -Name NotifyRecipients -value @($BkNotifyLog) -scope Script
-			$NotifyRecipients | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid --notify address {0} ignored" -f $_); $Counters.Warnings++ }
-			Set-Variable -Name BkNotifyLog -Value @($NotifyRecipients | Where-Object {IsValidEmailAddress $_}) -Scope Script 
-			Remove-Variable -Name NotifyRecipients -Scope Script
-		} Else {
-			$BkNotifyLog | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid --notify address {0} ignored" -f $_); $Counters.Warnings++ }
-			Set-Variable -Name BkNotifyLog -Value @($BkNotifyLog | Where-Object {IsValidEmailAddress $_}) -Scope Script 
-		}
-		If($BkNotifyLog.Count -lt 1) {
-			Trace " Warning : No valid --notify address left: no notification will be sent"; $Counters.Warnings++
-			Remove-Variable -Name BkNotifyLog -Scope Script
-		}
+		Resolve-AddressList "BkNotifyLog" "--notify"
+		If(!(Test-Variable "BkNotifyLog")) { Trace " Warning : No valid --notify address left: no notification will be sent"; $Counters.Warnings++ }
 
 		# ----------------------------------------------------------------------------------------------------------------------
 		# To CC Email Address(es) - Checks
 		# ----------------------------------------------------------------------------------------------------------------------
-		If(!($BkNotifyLogCc -is [array])) { 
-			Set-Variable -Name NotifyRecipients -value @($BkNotifyLogCc) -scope Script
-			$NotifyRecipients | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid --notifyCc address {0} ignored" -f $_); $Counters.Warnings++ }
-			Set-Variable -Name BkNotifyLogCc -Value @($NotifyRecipients | Where-Object {IsValidEmailAddress $_}) -Scope Script 
-			Remove-Variable -Name NotifyRecipients -Scope Script
-		} Else {
-			$BkNotifyLogCc | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid --notifyCc address {0} ignored" -f $_); $Counters.Warnings++ }
-			Set-Variable -Name BkNotifyLogCc -Value @($BkNotifyLogCc | Where-Object {IsValidEmailAddress $_}) -Scope Script 
-		}
-		If($BkNotifyLogCc.Count -lt 1) {
-			Remove-Variable -Name BkNotifyLogCc -Scope Script
-		}
-		
+		Resolve-AddressList "BkNotifyLogCc" "--notifyCc"
+
 		# ----------------------------------------------------------------------------------------------------------------------
 		# To BCC Email Address(es) - Checks
 		# ----------------------------------------------------------------------------------------------------------------------
-		If(!($BkNotifyLogBcc -is [array])) { 
-			Set-Variable -Name NotifyRecipients -value @($BkNotifyLogBcc) -scope Script
-			$NotifyRecipients | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid --notifyBcc address {0} ignored" -f $_); $Counters.Warnings++ }
-			Set-Variable -Name BkNotifyLogBcc -Value @($NotifyRecipients | Where-Object {IsValidEmailAddress $_}) -Scope Script 
-			Remove-Variable -Name NotifyRecipients -Scope Script
-		} Else {
-			$BkNotifyLogBcc | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid --notifyBcc address {0} ignored" -f $_); $Counters.Warnings++ }
-			Set-Variable -Name BkNotifyLogBcc -Value @($BkNotifyLogBcc | Where-Object {IsValidEmailAddress $_}) -Scope Script 
-		}
-		If($BkNotifyLogBcc.Count -lt 1) {
-			Remove-Variable -Name BkNotifyLogBcc -Scope Script
-		}
-		
+		Resolve-AddressList "BkNotifyLogBcc" "--notifyBcc"
+
 		# ----------------------------------------------------------------------------------------------------------------------
 		# From Email Addresses - Checks
 		# ----------------------------------------------------------------------------------------------------------------------
@@ -1887,13 +1882,10 @@ Function Assert-Variables {
 		# ----------------------------------------------------------------------------------------------------------------------
 		# Email info - Checks
 		# ----------------------------------------------------------------------------------------------------------------------
-		If(!(Test-Variable "BkNotifyExtra")) { Set-Variable -name BkNotifyExtra -value "none" -scope Script }
-		Switch ($BkNotifyExtra) {
-			"none"   { Set-Variable -name BkNotifyExtra -value "none"  -scope Script }
-			"inline" { Set-Variable -name BkNotifyExtra -value "inline" -scope Script }
-			"attach" { Set-Variable -name BkNotifyExtra -value "attach" -scope Script }
-			Default  { Write-Output "Missing or invalid --notifyextra argument" ; Set-Variable -name BkNotifyExtra -value "none" -scope Script}
-		}
+		Set-DefaultVariable "BkNotifyExtra" "none"
+		$notifyExtra = Resolve-Choice $BkNotifyExtra "none", "inline", "attach"
+		If(!$notifyExtra) { Write-Output "Missing or invalid --notifyextra argument"; $notifyExtra = "none" }
+		Set-Variable -Name BkNotifyExtra -Value $notifyExtra -Scope Script
 
 		# ----------------------------------------------------------------------------------------------------------------------
 		# Relay server - Checks
@@ -1926,20 +1918,8 @@ Function Assert-Variables {
 		# ----------------------------------------------------------------------------------------------------------------------
 		# Relay server port - Checks
 		# ----------------------------------------------------------------------------------------------------------------------
-		If(!(Test-Variable "BkSmtpPort"))  { Set-Variable -name BkSmtpPort -value ([int]25) -scope Script } Else {
-			Set-Variable -name i -value ([int]0) -scope Local
-			If(([system.int64]::tryparse($BkSmtpPort,[ref]$i))) {
-				Set-Variable -name BkSmtpPort -value $i -scope Script
-				If(($BkSmtpPort -le 0) -or ($BkSmtpPort -gt 65535)) {
-					Write-Output "Provided value for --smtpPort argument is not valid. Must be a number [1-65535]."
-					Remove-Variable -name BkSmtpPort -scope Script
-				}
-			} Else {
-				Write-Output "Provided value for --smtpPort argument is not valid. Must be a number [1-65535]."
-				Remove-Variable -name BkSmtpPort -scope Script
-			}
-			Remove-Variable -name i -scope Local
-		}
+		If(!(Test-Variable "BkSmtpPort")) { Set-Variable -Name BkSmtpPort -Value ([int]25) -Scope Script }
+		Else { Resolve-IntegerVariable "BkSmtpPort" 1 65535 "Provided value for --smtpPort argument is not valid. Must be a number [1-65535]." }
 
 		# ----------------------------------------------------------------------------------------------------------------------
 		# MailKit (optional) - Checks
@@ -2610,7 +2590,7 @@ public class SevenZipOutput {
 		While($sevenZipOutput.TryGetError([ref]$stdErrLine)) { Trace (" !{0}" -f $stdErrLine) }
 
 		# Retrieve ExitCode if not already defined
-		If(!(Test-Variable "Bk7ZipRetc")) { Set-Variable -Name "Bk7ZipRetc" -value $oProcess.ExitCode -scope Script }
+		Set-DefaultVariable "Bk7ZipRetc" $oProcess.ExitCode
 		
 		# Stop the clock
 		$MyContext.CompressionEnd = Get-Date
@@ -2676,7 +2656,7 @@ public class SevenZipOutput {
 			# the rotation range. If no rotation is defined then assume rotation period is 999 so we
 			# can easily have an output of archives on target media.
 			If(!(Test-CtrlCRequest)) {
-				If(!(Test-Variable "BkRotate")) { Set-Variable -name "BkRotate" -value ([int]9999) -scope Script }
+				Set-DefaultVariable "BkRotate" ([int]9999)
 				If(($BkRotate -ge 1)) {
 					$totalArchiveBytes = [int64]0
 					$fileNameRgx = ("^$([Regex]::Escape($BkArchivePrefix))-$BkType-[0-9]{8}-[0-9]{4,6}\.(7z|zip|tar)(\.\d{3})?$")
