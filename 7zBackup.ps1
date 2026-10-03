@@ -354,23 +354,6 @@ Function Test-CtrlCRequest {
 
 
 # -----------------------------------------------------------------------------
-# Function 		: Test-FsAttribute
-# -----------------------------------------------------------------------------
-# Description	: Checks for the presence of an attribute on a FileSystem object
-# Parameters    : [string]itemFullName - The name of the item to check
-#				  [string]attrName     - The name of the attribute to look for
-# Returns       : $True / $False
-# Credits       : http://scriptolog.blogspot.com/2007/10/file-attributes-helper-functions.html
-# -----------------------------------------------------------------------------
-Function Test-FsAttribute {
-    param([string]$itemFullName = $(throw "You must provide an item name"),
-	      [string]$attrName = $(throw "You must provide an attribute name"))
-
-	$item = Get-Item -LiteralPath $itemFullName -Force
-	[bool]($item -and ($item.Attributes -band [System.IO.FileAttributes]::$attrName))
-} 
-
-# -----------------------------------------------------------------------------
 # Function 		: Close-Writers
 # -----------------------------------------------------------------------------
 # Description	: Flushes and closes the file stream writers of the script
@@ -461,19 +444,7 @@ Function IsValidHostName {
 Function GetDestPathFreeSpace {
 	param([string]$target = $(throw "You must provide a location to check"))
 	
-	If($target -imatch "^\\\\") {
-	
-		While($true) {
-			$parent = (Split-Path -Path $target -Parent)
-			If($parent) { $target = $parent } Else { break }
-		}
-		Write-Output ([int64]((new-object -com scripting.filesystemobject).getdrive($target).availablespace))
-	
-	} Else {
-		
-		Write-Output ([int64]((new-object -com scripting.filesystemobject).getdrive($target.Substring(0,1)).availablespace))
-		
-	}
+	Return [int64]((New-Object -ComObject Scripting.FileSystemObject).GetDrive([System.IO.Path]::GetPathRoot($target)).AvailableSpace)
 }
 
 # -----------------------------------------------------------------------------
@@ -1720,8 +1691,7 @@ Function Assert-Variables {
 	If (
 		((Test-Variable "BkSelection") -eq $False) -or
 		($BkSelection -match "^\s*$") -or
-		((Test-Path $BkSelection -pathType Leaf) -eq $False) -or
-		(Test-FsAttribute $BkSelection "Directory")
+		((Test-Path $BkSelection -pathType Leaf) -eq $False)
 	)	{ Write-Output "Missing or invalid --selection argument. Must be an existent file" } 
 	Else 
 	{
@@ -1775,7 +1745,6 @@ Function Assert-Variables {
 		!($BkDestPath) -Or
 		($BkDestPath -match "^\s*$") -Or
 		!(Test-Path $BkDestPath -pathType Container) -Or
-		!(Test-FsAttribute $BkDestPath "Directory") -Or
 		!(Test-Path-Writable $BkDestPath "File")
 	) { 
 		Write-Output ("Missing or invalid --destpath {0}." -f $BkDestPath) 
