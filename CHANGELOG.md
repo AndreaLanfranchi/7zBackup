@@ -5,6 +5,8 @@ Ui (user interface). Some old entries use Minor or New, or have no category.
 
 ## Unreleased
 
+- Bug: Remove-RootDir hid a failed link removal when the next link was removed: Return inside ForEach-Object left only the current link. It now stops at the first failure and reports it
+- Bug: With 7-Zip in both Program Files folders the 32-bit one was used, because the lookup kept the last hit. The native one is now used
 - Code: Trace-Warning logs a message and counts it as a warning (was the same two statements in 8 places)
 - Code: Test-Path-Writable is half as long, the lock file is written with Set-Content and its age is a date subtraction, and the 7-Zip lookup loops over the two Program Files folders. A missing Program Files (x86) folder (32-bit Windows) is skipped instead of raising an error
 - Code: Small one-liners: [Math]::Max for the selected bytes, the 7-Zip product version is read once and split once, no more "* 1" in the free space check

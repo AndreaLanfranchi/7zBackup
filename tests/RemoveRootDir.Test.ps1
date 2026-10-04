@@ -45,6 +45,28 @@ foreach ($linkName in "Plain", "My Alias", "Alias[1]") {
 	Remove-Item -LiteralPath $work -Recurse -Force
 }
 
+# Remove-SymLink checks after 10 ms: it can report a failure for a link which is gone a moment later
+Write-Host "`n Case: a link removal reported as failed is not hidden by the next one"
+$work = Join-Path $env:TEMP ("7zb-test-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+$root = Join-Path $work "root"
+$data = Join-Path $work "data"
+New-Item -ItemType Directory $root, $data -Force | Out-Null
+[System.Environment]::CurrentDirectory = $work
+foreach ($linkName in "A", "B") { cmd /c "mklink /J `"$root\$linkName`" `"$data`"" | Out-Null }
+$realRemoveSymLink = ${function:Remove-SymLink}
+Function Remove-SymLink ([string]$jPath) { [void](& $realRemoveSymLink $jPath); Return !$jPath.EndsWith("\A") }
+
+$result = Remove-RootDir $root
+
+Assert ($result -eq $False)          "Remove-RootDir reports the failure [$result]"
+Assert (Test-Path -LiteralPath $root) "the root dir is kept"
+Assert (Test-Path -LiteralPath "$data") "data behind the links is untouched"
+
+${function:Remove-SymLink} = $realRemoveSymLink
+[System.Environment]::CurrentDirectory = $env:TEMP
+foreach ($linkName in "A", "B") { If(Test-Path -LiteralPath "$root\$linkName") { cmd /c "rd `"$root\$linkName`"" } }
+Remove-Item -LiteralPath $work -Recurse -Force
+
 Write-Host ""
 If($Failures -gt 0) { Write-Host " $Failures assertion(s) failed" -ForegroundColor Red; exit 1 }
 Write-Host " All assertions passed" -ForegroundColor Green
