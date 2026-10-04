@@ -5,6 +5,7 @@ Ui (user interface). Some old entries use Minor or New, or have no category.
 
 ## Unreleased
 
+- Code: The sample selection file says a folder excluded by matchexcludepath is still listed, and that matchstoprecurse stops it
 - Bug: An empty folder matching matchexcludepath was still stored in the archive when empty folders are kept (emptydirs)
 - Code: README explains how to allow powershell.exe in Microsoft Defender Controlled Folder Access, which blocks clearing the archive bit and deleting files in protected folders
 - Ui: The "Archiving into" progress bar stayed on screen after 7-Zip ended: it is now cleared when the process exits
