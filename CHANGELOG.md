@@ -3,7 +3,7 @@
 Changes to 7zBackup.ps1, newest version first. Categories: Bug, Feat (feature), Code, Speed, Sec (security),
 Ui (user interface). Some old entries use Minor or New, or have no category.
 
-## Unreleased
+## 2.2.0-Stable (2026-10-04, Anlan)
 
 - Code: The sample selection file says a folder excluded by matchexcludepath is still listed, and that matchstoprecurse stops it
 - Bug: An empty folder matching matchexcludepath was still stored in the archive when empty folders are kept (emptydirs)
