@@ -1,6 +1,6 @@
-# Static test for the per-file loops of ProcessFolder and PostArchiving.
+# Static test for the per-file loops of Invoke-FolderScan and Complete-Archiving.
 # Cmdlets cost tens of microseconds per call: loops that run once per file must
-# use .NET calls instead. The behavior is covered by ProcessFolder, PostArchiving
+# use .NET calls instead. The behavior is covered by Invoke-FolderScan, Complete-Archiving
 # and NotArchived tests.
 #
 # Usage: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\PerFileCalls.Test.ps1
@@ -28,31 +28,31 @@ Function Get-LoopCommands ([string]$function, [type]$loopType, [string]$headerTe
 	Write-Output -NoEnumerate @($loop.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $True) | ForEach-Object { $_.GetCommandName() })
 }
 
-Write-Host "`n Case: ProcessFolder, loop over the files of a folder"
-$commands = Get-LoopCommands "ProcessFolder" ([System.Management.Automation.Language.ForEachStatementAst]) '[System.IO.FileInfo]'
+Write-Host "`n Case: Invoke-FolderScan, loop over the files of a folder"
+$commands = Get-LoopCommands "Invoke-FolderScan" ([System.Management.Automation.Language.ForEachStatementAst]) '[System.IO.FileInfo]'
 Assert ($null -ne $commands)                                              "precondition, loop found"
 Assert (@($commands | Where-Object { $_ -eq "Join-Path" }).Count -eq 0)   "no Join-Path per file [$(($commands | Sort-Object -Unique) -join ', ')]"
 Assert (@($commands | Where-Object { $_ -eq "New-Timespan" }).Count -eq 0) "no New-Timespan per file [$(($commands | Sort-Object -Unique) -join ', ')]"
 
-Write-Host "`n Case: PostArchiving, loop over the archived items"
-$commands = Get-LoopCommands "PostArchiving" ([System.Management.Automation.Language.ForEachStatementAst]) '$BkCompressDetailItems'
+Write-Host "`n Case: Complete-Archiving, loop over the archived items"
+$commands = Get-LoopCommands "Complete-Archiving" ([System.Management.Automation.Language.ForEachStatementAst]) '$BkCompressDetailItems'
 Assert ($null -ne $commands)                                              "precondition, loop found"
 Assert (@($commands | Where-Object { $_ -eq "Join-Path" }).Count -eq 0)   "no Join-Path per item [$(($commands | Sort-Object -Unique) -join ', ')]"
 Assert (@($commands | Where-Object { $_ -in "Get-Item", "Remove-Item" }).Count -eq 0) "no Get-Item or Remove-Item per item [$(($commands | Sort-Object -Unique) -join ', ')]"
 
-Write-Host "`n Case: PostArchiving, loop over the archive listing lines"
-$commands = Get-LoopCommands "PostArchiving" ([System.Management.Automation.Language.WhileStatementAst]) 'StandardOutput.ReadLine()'
+Write-Host "`n Case: Complete-Archiving, loop over the archive listing lines"
+$commands = Get-LoopCommands "Complete-Archiving" ([System.Management.Automation.Language.WhileStatementAst]) 'StandardOutput.ReadLine()'
 Assert ($null -ne $commands)                                              "precondition, loop found"
 Assert (@($commands | Where-Object { $_ -eq "New-Object" }).Count -eq 0)  "no New-Object per listing line [$(($commands | Sort-Object -Unique) -join ', ')]"
 
-Write-Host "`n Case: PostArchiving, catalog check (NOT ARCHIVED)"
-$assignments = @((Get-Function "PostArchiving").FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$notArchived' }, $True))
+Write-Host "`n Case: Complete-Archiving, catalog check (NOT ARCHIVED)"
+$assignments = @((Get-Function "Complete-Archiving").FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$notArchived' }, $True))
 $commands = @($assignments | ForEach-Object { $_.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $True) } | ForEach-Object { $_.GetCommandName() })
 Assert ($assignments.Count -ge 1)                                         "precondition, notArchived assignment found"
 Assert (@($commands | Where-Object { $_ -eq "Where-Object" }).Count -eq 0) "no Where-Object pipeline over the catalog [$(($commands | Sort-Object -Unique) -join ', ')]"
 
-Write-Host "`n Case: ProcessFolder, folder listing"
-$commands = @((Get-Function "ProcessFolder").FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $True) | ForEach-Object { $_.GetCommandName() })
+Write-Host "`n Case: Invoke-FolderScan, folder listing"
+$commands = @((Get-Function "Invoke-FolderScan").FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $True) | ForEach-Object { $_.GetCommandName() })
 Assert (@($commands | Where-Object { $_ -eq "Get-ChildItem" }).Count -eq 0) "no Get-ChildItem: about 27 us per listed item [$(($commands | Sort-Object -Unique) -join ', ')]"
 
 Write-Host ""

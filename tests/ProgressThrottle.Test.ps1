@@ -1,7 +1,7 @@
 # Unit test for Trace-Progress, the throttled Write-Progress.
 # Write-Progress costs some milliseconds per call and the scan calls it for
 # every folder: it must write at most once every 500 ms, unless forced.
-# ProcessFolder must not call Write-Progress directly any more.
+# Invoke-FolderScan must not call Write-Progress directly any more.
 #
 # Usage: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\ProgressThrottle.Test.ps1
 
@@ -40,11 +40,11 @@ Start-Sleep -Milliseconds 600
 Trace-Progress "Folder x" "Checking ... " "Selected 1 file"
 Assert ($ProgressCalls -eq 2) "one write before and one after the wait [$ProgressCalls]"
 
-Write-Host "`n Case: ProcessFolder goes through Trace-Progress (via Trace-ScanProgress)"
-$processFolder = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq "ProcessFolder" }, $False)[0]
+Write-Host "`n Case: Invoke-FolderScan goes through Trace-Progress (via Trace-ScanProgress)"
+$processFolder = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq "Invoke-FolderScan" }, $False)[0]
 $commands = @($processFolder.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $True) | ForEach-Object { $_.GetCommandName() })
-Assert (@($commands | Where-Object { $_ -eq "Write-Progress" }).Count -eq 0) "ProcessFolder calls no Write-Progress directly"
-Assert (@($commands | Where-Object { $_ -eq "Trace-ScanProgress" }).Count -ge 1) "ProcessFolder calls Trace-ScanProgress"
+Assert (@($commands | Where-Object { $_ -eq "Write-Progress" }).Count -eq 0) "Invoke-FolderScan calls no Write-Progress directly"
+Assert (@($commands | Where-Object { $_ -eq "Trace-ScanProgress" }).Count -ge 1) "Invoke-FolderScan calls Trace-ScanProgress"
 $scanProgress = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq "Trace-ScanProgress" }, $False)[0]
 $scanCommands = @($scanProgress.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $True) | ForEach-Object { $_.GetCommandName() })
 Assert (@($scanCommands | Where-Object { $_ -eq "Write-Progress" }).Count -eq 0) "Trace-ScanProgress calls no Write-Progress directly"

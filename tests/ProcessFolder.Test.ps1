@@ -1,4 +1,4 @@
-# Integration tests for ProcessFolder (selection scan).
+# Integration tests for Invoke-FolderScan (selection scan).
 #
 # Usage: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\ProcessFolder.Test.ps1
 
@@ -18,7 +18,7 @@ Function Assert ([bool]$condition, [string]$message) {
 }
 
 # The script body loop that walks catalogFolders: the scan runs it, not a copy that could drift from it
-$scanLoop = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.WhileStatementAst] -and $_.Extent.Text.Contains('ProcessFolder $catalogFolders') })
+$scanLoop = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.WhileStatementAst] -and $_.Extent.Text.Contains('Invoke-FolderScan $catalogFolders') })
 Assert ($scanLoop.Count -eq 1) "precondition, scan loop found in the script body"
 
 Function New-WorkDir {

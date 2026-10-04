@@ -1,4 +1,4 @@
-# Integration test for the catalog check in PostArchiving.
+# Integration test for the catalog check in Complete-Archiving.
 # A selected item missing from the finished archive must be logged as
 # NOT ARCHIVED and counted, for every backup type, unless 7-Zip already
 # reported it. Items really stored (files, empty folders, support files)
@@ -50,7 +50,7 @@ Function Invoke-Case {
 	$catalog = @($files | ForEach-Object { "Alias\$_" }) + @("Alias\empty", "Catalog-Include.txt")
 	[System.IO.File]::WriteAllLines($list, [string[]]$catalog, (New-Object System.Text.UTF8Encoding $True))
 
-	# State PostArchiving reads from script scope
+	# State Complete-Archiving reads from script scope
 	$script:BkType           = $type
 	$script:BkClearBit       = $clearBit
 	$script:BkDryRun         = $False
@@ -76,7 +76,7 @@ Function Invoke-Case {
 
 	Assert ($exitCode -eq 1) "${label}: precondition, 7-Zip exits with 1 (locked file not stored)"
 
-	PostArchiving
+	Complete-Archiving
 
 	$log = $script:MyContext.Logger.ToString()
 	$notArchived = @([regex]::Matches($log, 'NOT ARCHIVED : ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value.Trim() })

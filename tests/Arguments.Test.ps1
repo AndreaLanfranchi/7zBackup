@@ -28,7 +28,7 @@ Function Invoke-Parser ([string[]]$arguments) {
 
 # Options followed by a value: argument, variable ($null: the value is accepted and ignored)
 $valueOptions = @(
-	@("--type", "BkType"), @("--workdir", "BkWorkDir"), @("--workdrive", "BkWorkDrive"),
+	@("--type", "BkType"), @("--workdir", $null), @("--workdrive", "BkWorkDrive"),
 	@("--selection", "BkSelection"), @("--destpath", "BkDestPath"),
 	@("--archiveprefix", "BkArchivePrefix"), @("--prefix", "BkArchivePrefix"),
 	@("--archivetype", "BkArchiveType"), @("--compression", "BkArchiveCompression"),
