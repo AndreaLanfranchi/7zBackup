@@ -18,7 +18,7 @@ Function Assert ([bool]$condition, [string]$message) {
 	Else { Write-Host " FAIL : $message" -ForegroundColor Red; $script:Failures++ }
 }
 
-$MyContext = [hashtable]::Synchronized(@{ WinVer = @("10") })
+$MyContext = [hashtable]::Synchronized(@{})
 $work = Join-Path $env:TEMP ("7zb-test-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 New-Item -ItemType Directory $work | Out-Null
 

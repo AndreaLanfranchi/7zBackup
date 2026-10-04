@@ -69,7 +69,7 @@ $BkArchiveName     = "test-incr-20260912-120000.7z"
 $totalBytes        = [int64]0
 $Counters          = @{ Exclusions = 0; Warnings = 0; Exceptions = 0; Criticals = 0; FoldersDone = 1; FilesProcessed = 1; FilesSelected = 1; BytesSelected = [int64]1; BytesAvailable = [int64]0; PlaceHolders = @() }
 $SWriters          = @{}
-$MyContext         = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); StartDir = $env:TEMP; WinVer = @("10"); SelectionStart = (Get-Date); SevenZBinVersionInfo = @{ ProductVersion = $SevenZipVersion; Major = $SevenZipVersion.Split(".")[0] } })
+$MyContext         = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); StartDir = $env:TEMP; SelectionStart = (Get-Date); SevenZBinVersionInfo = @{ ProductVersion = $SevenZipVersion; Major = $SevenZipVersion.Split(".")[0] } })
 Set-Location -Path $BkRootDir
 
 # Worst case console on any machine: input encoding UTF-8 with BOM (as with code page 65001)

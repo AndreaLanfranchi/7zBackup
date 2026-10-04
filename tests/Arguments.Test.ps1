@@ -43,7 +43,7 @@ $valueOptions = @(
 	@("--notifyfrom", "BkSmtpFrom"), @("--notifyextra", "BkNotifyExtra"),
 	@("--smtpserver", "BkSmtpRelay"), @("--smtpport", "BkSmtpPort"),
 	@("--smtpuser", "BkSmtpUser"), @("--smtppass", "BkSmtpPass"), @("--mailkitpath", "BkMailKitPath"),
-	@("--7zbin", "Bk7ZipBin"), @("--7zipbin", "Bk7ZipBin"), @("--jbin", "BkJunctionBin"),
+	@("--7zbin", "Bk7ZipBin"), @("--7zipbin", "Bk7ZipBin"), @("--jbin", $null),
 	@("--pre", "BkPreAction"), @("--post", "BkPostAction")
 )
 # Switches without a value: argument, variable
@@ -97,6 +97,18 @@ Assert ($messages.Count -eq 0 -and @(Get-Variable -Name "Bk*" -Scope Script | Wh
 Write-Host "`n Case: an option at the end of the line without its value does not fail"
 $messages = @(Invoke-Parser @("--type"))
 Assert ($messages.Count -eq 0 -and $null -eq $BkType) "--type alone is left unset"
+
+Write-Host "`n Case: --jbin is accepted and ignored, with a warning"
+$script:MyContext = [hashtable]::Synchronized(@{ Logger = (New-Object System.Text.StringBuilder) })
+$script:Counters  = @{ Warnings = 0 }
+$messages = @(Invoke-Parser @("--jbin", "C:\Tools\Junction.exe", "--dry"))
+Assert ($messages.Count -eq 0 -and $null -eq $BkJunctionBin -and $BkDryRun -eq $True) "--jbin takes its value and sets nothing"
+$null = Trace-ObsoleteArguments 6>&1
+Assert ($Counters.Warnings -eq 1 -and $MyContext.Logger.ToString().Contains("--jbin is obsolete")) "the warning is logged and counted once [$($Counters.Warnings)]"
+$script:Counters = @{ Warnings = 0 }
+$null = Invoke-Parser @("--type", "full")
+$null = Trace-ObsoleteArguments 6>&1
+Assert ($Counters.Warnings -eq 0) "no warning without --jbin"
 
 Write-Host ""
 If($Failures -gt 0) { Write-Host " $Failures assertion(s) failed" -ForegroundColor Red; exit 1 }

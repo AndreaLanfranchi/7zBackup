@@ -19,7 +19,7 @@ Function Assert ([bool]$condition, [string]$message) {
 	Else { Write-Host " FAIL : $message" -ForegroundColor Red; $script:Failures++ }
 }
 
-$MyContext = [hashtable]::Synchronized(@{ WinVer = @("10") })   # Vista or newer: Remove-SymLink is used
+$MyContext = [hashtable]::Synchronized(@{})
 
 foreach ($linkName in "Plain", "My Alias", "Alias[1]") {
 	Write-Host "`n Case: link named '$linkName'"
