@@ -133,6 +133,12 @@
 #
 #       matchexcludepath=^Container1\\Dir1\.3$
 #
+#       A folder excluded here is still listed to find its subfolders.
+#       If it can not be listed (e.g. "System Volume Information" on a
+#       drive root: access denied) an exception is logged. To skip the
+#       folder completely, set the same expression in matchstoprecurse
+#       too.
+#
 #       Please note that in this tag, if you want to refer to the parent
 #       root of a directory you have to address the "alias" value of the
 #       the source.
