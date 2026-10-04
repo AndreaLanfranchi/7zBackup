@@ -17,9 +17,7 @@ Function Assert ([bool]$condition, [string]$message) {
 	Else { Write-Host " FAIL : $message" -ForegroundColor Red; $script:Failures++ }
 }
 
-# The script body loop that walks catalogFolders: the scan runs it, not a copy that could drift from it
-$scanLoop = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.WhileStatementAst] -and $_.Extent.Text.Contains('Invoke-FolderScan $catalogFolders') })
-Assert ($scanLoop.Count -eq 1) "precondition, scan loop found in the script body"
+Assert ($null -ne (Get-Command Invoke-SelectionScan)) "precondition, Invoke-SelectionScan exists"
 
 Function New-WorkDir {
 	$work = Join-Path $env:TEMP ("7zb-test-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
@@ -44,12 +42,8 @@ Function Invoke-Scan ([string]$work, [string]$source, [switch]$lowerCaseDrive, [
 	$script:SWriters  = @{ Inclusions = (New-Object System.IO.StreamWriter($inclusions, $False, [System.Text.Encoding]::UTF8)) }
 	foreach ($name in "Exclusions", "Exceptions") { $script:SWriters[$name] = New-Object System.IO.StreamWriter((Join-Path $work "$name.txt"), $False, [System.Text.Encoding]::ASCII) }
 
-	$script:catalogFolders      = New-Object System.Collections.ArrayList
-	$script:catalogFoldersIndex = 0
-	[void]$script:catalogFolders.Add(@{ Name = $aliasName; FullName = "$script:BkRootDir\$aliasName"; RelativeName = $aliasName; ContainerAlias = $aliasName; RealName = $source; Depth = 0 })
 	Set-Location -Path $script:BkRootDir
-	# Dot-sourced in this function, the loop increments a local copy of catalogFoldersIndex: it starts from 0 all the same
-	. ([scriptblock]::Create($scanLoop[0].Extent.Text))
+	Invoke-SelectionScan
 	Set-Location -Path $env:TEMP
 	$script:SWriters.Values | ForEach-Object { $_.Close() }
 	cmd /c "rd `"$script:BkRootDir\$aliasName`""
