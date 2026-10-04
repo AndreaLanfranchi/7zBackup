@@ -935,9 +935,10 @@ Function Remove-RootDir {
 	
 	If (Test-Path -Path $rootPath -PathType Container) {
 		Set-Variable -Name "junctionsRemoved" -Value $True -Scope Private | Out-Null
-		Get-ChildItem -Path $rootPath | Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } | ForEach-Object {
-			$junctionsRemoved = Remove-SymLink $_.FullName
-			If(!$junctionsRemoved) {Return}
+		# foreach, not ForEach-Object: there Return leaves only the current link and the next success hides the failure
+		foreach ($link in @(Get-ChildItem -Path $rootPath | Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint })) {
+			$junctionsRemoved = Remove-SymLink $link.FullName
+			If(!$junctionsRemoved) { break }
 		}
 		If($junctionsRemoved -And (@(Get-ChildItem -Path $rootPath | Where-Object {$_.PsIsContainer}).Count -eq 0) ) {
 			Remove-Item -Path $rootPath -Recurse -Force | Out-Null
@@ -1872,7 +1873,7 @@ Function Assert-Variables {
 		foreach ($programFiles in ${Env:ProgramFiles}, ${Env:ProgramFiles(x86)}) {
 			If(!$programFiles) { continue }
 			$candidate = Join-Path -Path $programFiles -ChildPath "\7-Zip\7z.exe"
-			If(Test-Path -Path $candidate -PathType Leaf) { Set-Variable -Name Bk7ZipBin -Value $candidate -Scope Script }
+			If(Test-Path -Path $candidate -PathType Leaf) { Set-Variable -Name Bk7ZipBin -Value $candidate -Scope Script; break }
 		}
 	}
 	If(

@@ -77,7 +77,7 @@ Copy-Item -LiteralPath $exe -Destination "$work\pf86\7-Zip\7z.exe"
 Remove-Variable -Name Bk7ZipBin -Scope Script
 ${env:ProgramFiles(x86)} = "$work\pf86"
 $errors = @(Invoke-Validation | Where-Object { $_ -match "7zipbin" })
-Assert ($errors.Count -eq 0 -and $Bk7ZipBin -eq (Join-Path "$work\pf86" "\7-Zip\7z.exe")) "found in both: the x86 one wins, as before [$Bk7ZipBin]"
+Assert ($errors.Count -eq 0 -and $Bk7ZipBin -eq (Join-Path "$work\pf" "\7-Zip\7z.exe")) "found in both: the native one wins [$Bk7ZipBin]"
 
 Remove-Variable -Name Bk7ZipBin -Scope Script
 $env:ProgramFiles = "$work\none"; ${env:ProgramFiles(x86)} = $null
