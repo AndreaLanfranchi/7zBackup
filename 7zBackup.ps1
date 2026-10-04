@@ -744,12 +744,15 @@ Function Add-ScanException ($errorObject, [string]$name) {
 # Function 		: Trace-ScanProgress
 # -----------------------------------------------------------------------------
 # Description	: Shows what the selection scan is doing in a folder and how
-#				  much it has selected so far (see Trace-Progress)
+#				  much it has selected so far (see Trace-Progress). The
+#				  throttle is checked first: formatting the status costs more
+#				  than the check and the scan calls this three times per folder
 # Parameters    : $folder             - The folder being scanned
 #                 [string]$operation  - What is being done
 # Returns       : --
 # -----------------------------------------------------------------------------
 Function Trace-ScanProgress ($folder, [string]$operation) {
+	If($MyContext.ProgressWatch -and ($MyContext.ProgressWatch.ElapsedMilliseconds -lt 500)) { Return }
 	Trace-Progress ("Folder {0}" -f $folder.RealName) $operation ("Selected {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3,0:n2} MBytes to backup" -f $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, ($Counters.BytesSelected / 1MB))
 }
 
@@ -759,15 +762,14 @@ Function Trace-ScanProgress ($folder, [string]$operation) {
 # Description	: This is the main scanning/selection routine.
 #				  It's purpouse is to recurse all the folders below the
 #                 given root in search of files to backup
-# Parameters    : [string]$folderPath - The name of the directory to scan
-#                 [int]$depth - Depth level reached
-# Returns       : $True / $False
+# Parameters    : $thisFolder     - The folder to scan (Name, FullName,
+#                                   RelativeName, ContainerAlias, RealName, Depth)
+#                 $pendingFolders - The stack of folders waiting to be scanned:
+#                                   the subfolders are pushed on it
+# Returns       : --
 # -----------------------------------------------------------------------------
-Function Invoke-FolderScan ($thisFolder) {
+Function Invoke-FolderScan ($thisFolder, $pendingFolders) {
 
-	Try {
-		[console]::TreatControlCAsInput = $True
-	} Catch {}
 	# Increment number of processed folders
 	$Counters.FoldersDone++
 	
@@ -815,7 +817,8 @@ Function Invoke-FolderScan ($thisFolder) {
 		$scanThisPathForFiles = $False 
 		Add-Exclusion "matchexcludepath" "D" $thisFolder.RealName
 	}
-	If((Test-Variable "BkMaxDepth") -and ($thisFolder.Depth -eq [int]$BkMaxDepth)) {
+	# Resolve-IntegerVariable left BkMaxDepth defined only with a valid number: no Get-Variable per folder
+	If(($null -ne $BkMaxDepth) -and ($thisFolder.Depth -eq [int]$BkMaxDepth)) {
 		$scanThisPathForRecursion = $False
 		Add-Exclusion "maxdepth" "D" $thisFolder.RealName
 	}
@@ -824,7 +827,6 @@ Function Invoke-FolderScan ($thisFolder) {
 		Add-Exclusion "matchstoprecurse" "D" $thisFolder.RealName
 	}
 	
-	If(Test-CtrlCRequest) { return }
 	# Early exit if we do not have to scan anything
 	If(!$scanThisPathForFiles -and !$scanThisPathForRecursion) { return }
 	
@@ -865,10 +867,11 @@ Function Invoke-FolderScan ($thisFolder) {
 	
 	}
 	
-	# Process Files Within The Container
+	# Process Files Within The Container (a type test per item: a Where-Object pipeline costs about 350 us per folder)
 	If($scanThisPathForFiles) {
-		foreach ($childFile in @($childItems | Where-Object { $_ -is [System.IO.FileInfo] })) {
-			
+		foreach ($childFile in $childItems) {
+			If($childFile -isnot [System.IO.FileInfo]) { continue }
+
 			$Counters.FilesProcessed++
 			
 			$childFileRealName = [System.IO.Path]::Combine($thisFolder.RealName, $childFile.Name)
@@ -949,10 +952,11 @@ Function Invoke-FolderScan ($thisFolder) {
 	}
 	
 	# Process Directories Within The Container
-	If($scanThisPathForRecursion -And (!(Test-CtrlCRequest))) {
-		# Queue children right after this folder, in order. Skipped junctions take no slot
-		$insertAt = $catalogFoldersIndex + 1
-		foreach ($childFolder in @($childItems | Where-Object { $_ -is [System.IO.DirectoryInfo] })) {
+	If($scanThisPathForRecursion) {
+		# Children are collected in order, then pushed in reverse: the first one is scanned next. Skipped junctions take no slot
+		$childFolderItems = New-Object System.Collections.ArrayList
+		foreach ($childFolder in $childItems) {
+			If($childFolder -isnot [System.IO.DirectoryInfo]) { continue }
 
 			$childFolderItem = @{}
 			$childFolderItem.Name = $childFolder.Name
@@ -969,10 +973,53 @@ Function Invoke-FolderScan ($thisFolder) {
 				continue
 			}
 			
-			[void] $catalogFolders.Insert($insertAt++, $childFolderItem)
+			[void] $childFolderItems.Add($childFolderItem)
 		}
+		for ($i = $childFolderItems.Count - 1; $i -ge 0; $i--) { $pendingFolders.Push($childFolderItems[$i]) }
 	}
 	
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Invoke-SelectionScan
+# -----------------------------------------------------------------------------
+# Description	: Scans the sources (the links in the root directory) with
+#				  Invoke-FolderScan, depth first and in order. The folders
+#				  waiting to be scanned sit on a stack: a scanned folder is
+#				  released, a growing list would keep them all until the end
+# Parameters    : --
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Invoke-SelectionScan {
+
+	Try {
+		[console]::TreatControlCAsInput = $True
+	} Catch {}
+
+	# Look-up for the folders (which are junctions) in the Root Folder
+	$rootFolders = New-Object System.Collections.ArrayList
+	$BkSources.GetEnumerator() | ForEach-Object {
+
+		$itemFolder = @{}
+	    $itemFolder.Name = $_.Name
+		$itemFolder.FullName = Join-Path -Path $BkRootDir -ChildPath $_.Value
+	    $itemFolder.RelativeName = $_.Name
+		$itemFolder.ContainerAlias = $_.Name
+		$itemFolder.RealName = Join-Path -Path $BkSources[$itemFolder.ContainerAlias] -ChildPath ($itemFolder.RelativeName.Replace($itemFolder.ContainerAlias, ""))
+	    $itemFolder.Depth = 0;
+		[void] $rootFolders.Add($itemFolder)
+
+	}
+
+	# Pushed in reverse: the first source is scanned first, with its subfolders, then the next one
+	$pendingFolders = New-Object System.Collections.Stack
+	for ($i = $rootFolders.Count - 1; $i -ge 0; $i--) { $pendingFolders.Push($rootFolders[$i]) }
+
+	While ($pendingFolders.Count -gt 0) {
+		If(Test-CtrlCRequest) { break }
+		Invoke-FolderScan $pendingFolders.Pop() $pendingFolders
+	}
+	Write-Progress -Activity "." -Status "." -Completed
 }
 
 # -----------------------------------------------------------------------------
@@ -2498,28 +2545,7 @@ Trace " ------------------------------------------------------------------------
 # Begin the processing of the root folder to build up the catalogs and start counting elapsed time
 $MyContext.SelectionStart = Get-Date
 
-# Look-up for the folders (which are junctions) in the Root Folder
-Set-Variable -Name catalogFolders -value (New-Object System.Collections.ArrayList) -scope Script
-Set-Variable -Name catalogFoldersIndex -value ([int]0) -scope Script
-$BkSources.GetEnumerator() | ForEach-Object {
-	
-	$itemFolder = @{}
-    $itemFolder.Name = $_.Name
-	$itemFolder.FullName = Join-Path -Path $BkRootDir -ChildPath $_.Value
-    $itemFolder.RelativeName = $_.Name
-	$itemFolder.ContainerAlias = $_.Name
-	$itemFolder.RealName = Join-Path -Path $BkSources[$itemFolder.ContainerAlias] -ChildPath ($itemFolder.RelativeName.Replace($itemFolder.ContainerAlias, ""))
-    $itemFolder.Depth = 0;
-	[void] $catalogFolders.Add($itemFolder)
-	
-}
-
-# Walk through catalogFolders to process each one
-While ($True) {
-	If(Test-CtrlCRequest) {break}
-	Invoke-FolderScan $catalogFolders[$catalogFoldersIndex] | Out-Null
-	If (!(++$catalogFoldersIndex -lt $catalogFolders.Count)) {Write-Progress -Activity "." -Status "." -Completed; break}
-}
+Invoke-SelectionScan
 If($MyContext.Cancelling) {
 	Clear-Script
 	Return 

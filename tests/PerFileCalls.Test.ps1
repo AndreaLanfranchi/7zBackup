@@ -29,10 +29,18 @@ Function Get-LoopCommands ([string]$function, [type]$loopType, [string]$headerTe
 }
 
 Write-Host "`n Case: Invoke-FolderScan, loop over the files of a folder"
-$commands = Get-LoopCommands "Invoke-FolderScan" ([System.Management.Automation.Language.ForEachStatementAst]) '[System.IO.FileInfo]'
+$commands = Get-LoopCommands "Invoke-FolderScan" ([System.Management.Automation.Language.ForEachStatementAst]) '$childFile in $childItems'
 Assert ($null -ne $commands)                                              "precondition, loop found"
 Assert (@($commands | Where-Object { $_ -eq "Join-Path" }).Count -eq 0)   "no Join-Path per file [$(($commands | Sort-Object -Unique) -join ', ')]"
 Assert (@($commands | Where-Object { $_ -eq "New-Timespan" }).Count -eq 0) "no New-Timespan per file [$(($commands | Sort-Object -Unique) -join ', ')]"
+
+Write-Host "`n Case: Invoke-FolderScan, per folder"
+$listingLoops = @((Get-Function "Invoke-FolderScan").FindAll({ param($n) $n -is [System.Management.Automation.Language.ForEachStatementAst] -and $n.Condition.Extent.Text.Contains('$childItems') }, $True))
+Assert ($listingLoops.Count -eq 2)                                              "precondition, the files loop and the folders loop run over the listing [$($listingLoops.Count)]"
+Assert (@($listingLoops | Where-Object { $_.Condition.Extent.Text.Contains("Where-Object") }).Count -eq 0) "no Where-Object pipeline over the listed items: about 350 us per folder [$(($listingLoops | ForEach-Object { $_.Condition.Extent.Text }) -join ', ')]"
+$commands = @((Get-Function "Invoke-FolderScan").FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $True) | ForEach-Object { $_.GetCommandName() })
+Assert (@($commands | Where-Object { $_ -eq "Test-Variable" }).Count -eq 0)     "no Test-Variable per folder: about 400 us [$(($commands | Sort-Object -Unique) -join ', ')]"
+Assert (@($commands | Where-Object { $_ -eq "Test-CtrlCRequest" }).Count -eq 0) "no Test-CtrlCRequest per folder: the scan loop checks once per folder [$(($commands | Sort-Object -Unique) -join ', ')]"
 
 Write-Host "`n Case: Complete-Archiving, loop over the archived items"
 $commands = Get-LoopCommands "Complete-Archiving" ([System.Management.Automation.Language.ForEachStatementAst]) '$BkCompressDetailItems'
