@@ -65,7 +65,7 @@ foreach ($case in $cases) {
 	$totalBytes      = [int64]0
 	$Counters        = @{ Exclusions = 0; Warnings = 0; Exceptions = 0; Criticals = 0; FoldersDone = 1; FilesProcessed = 1; FilesSelected = 1; BytesSelected = [int64]1; BytesAvailable = [int64]0; PlaceHolders = @(); Extensions = @{} }
 	$SWriters        = @{}
-	$MyContext       = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); StartDir = $env:TEMP; WinVer = @("10"); SelectionStart = (Get-Date); SevenZBinVersionInfo = @{ ProductVersion = "$($case.Version).00"; Major = "$($case.Version)" } })
+	$MyContext       = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); StartDir = $env:TEMP; SelectionStart = (Get-Date); SevenZBinVersionInfo = @{ ProductVersion = "$($case.Version).00"; Major = "$($case.Version)" } })
 	Set-Location -Path $BkRootDir
 	. ([scriptblock]::Create($archivingBlock.Extent.Text))
 	Set-Location -Path $env:TEMP

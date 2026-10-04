@@ -30,7 +30,7 @@ Set-Content -LiteralPath $selection -Value "includesource=$work\source|alias=Sou
 
 # Runs Assert-Variables with an otherwise valid setup and the given --threads; returns the errors
 Function Invoke-Validation ($threads) {
-	$script:MyContext        = [hashtable]::Synchronized(@{ PSVer = [int]$PSVersionTable.PSVersion.Major; WinVer = @("10"); Logger = (New-Object System.Text.StringBuilder) })
+	$script:MyContext        = [hashtable]::Synchronized(@{ PSVer = [int]$PSVersionTable.PSVersion.Major; Logger = (New-Object System.Text.StringBuilder) })
 	$script:Counters         = @{ Warnings = 0 }
 	$script:BkType           = "full"
 	$script:BkSelection      = $selection

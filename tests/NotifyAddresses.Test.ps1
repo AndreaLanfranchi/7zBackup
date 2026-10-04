@@ -38,7 +38,7 @@ Set-Content -LiteralPath $selection -Value "includesource=$work\source|alias=Sou
 # Runs Assert-Variables with an otherwise valid setup and the given To address(es); returns the errors
 Function Invoke-Validation ($notifyTo, $from = "backup@example.com", $relay = "smtp.example.com") {
 	foreach ($name in "BkNotifyLog", "BkNotifyLogCc", "BkNotifyLogBcc") { Remove-Variable -Name $name -Scope Script }
-	$script:MyContext       = [hashtable]::Synchronized(@{ PSVer = [int]$PSVersionTable.PSVersion.Major; WinVer = @("10"); Logger = (New-Object System.Text.StringBuilder) })
+	$script:MyContext       = [hashtable]::Synchronized(@{ PSVer = [int]$PSVersionTable.PSVersion.Major; Logger = (New-Object System.Text.StringBuilder) })
 	$script:Counters        = @{ Warnings = 0 }
 	$script:BkType          = "full"
 	$script:BkSelection     = $selection

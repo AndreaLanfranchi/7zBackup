@@ -27,7 +27,7 @@ Function Assert ([bool]$condition, [string]$message) {
 Assert (($null -ne $preActionBlock) -and ($null -ne $rotationBlock) -and ($null -ne $archivingBlock)) "precondition, script body blocks found"
 
 Function Reset-Context {
-	$script:MyContext = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); StartDir = $env:TEMP; WinVer = @("10"); SelectionStart = (Get-Date) })
+	$script:MyContext = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); StartDir = $env:TEMP; SelectionStart = (Get-Date) })
 	$script:Counters  = @{ Exclusions = 0; Warnings = 0; Exceptions = 0; Criticals = 0; FoldersDone = 1; FilesProcessed = 1; FilesSelected = 1; BytesSelected = [int64]1; BytesAvailable = [int64]0; PlaceHolders = @() }
 }
 
