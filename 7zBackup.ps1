@@ -924,7 +924,7 @@ Function ProcessFolder ($thisFolder) {
 # Description	: This function safely removes the Root Directory generated for
 #				  the purpouse of holding junction points to included sources.
 #				  Before it deletes the directory itself, each reparse point
-#				  is removed using Junction with the -d switch.
+#				  is removed with RD (Remove-SymLink).
 # Parameters    : [string]rootPath - The name of the directory to remove
 # Returns       : $True / $False
 # -----------------------------------------------------------------------------

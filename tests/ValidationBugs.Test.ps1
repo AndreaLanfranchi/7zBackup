@@ -1,6 +1,6 @@
 # Test for two argument checks of Assert-Variables:
 # - --volumes accepts only a number and one unit letter (b, k, m or g)
-# - on Windows XP / 2003 junction.exe is searched in the Program Files folders
+# - PowerShell older than 3.0 is refused
 #
 # Usage: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\ValidationBugs.Test.ps1
 
