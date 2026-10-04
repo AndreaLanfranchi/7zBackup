@@ -19,9 +19,8 @@ Function Assert ([bool]$condition, [string]$message) {
 	Else { Write-Host " FAIL : $message" -ForegroundColor Red; $script:Failures++ }
 }
 
-# The script body block that writes the report
-$report = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.IfStatementAst] -and $_.Extent.Text.Contains('Selection Details') })
-Assert ($report.Count -eq 1) "precondition, report block found in the script body"
+# The function that writes the report
+Assert ($null -ne (Get-Command Write-SelectionStats -ErrorAction SilentlyContinue)) "precondition, Write-SelectionStats found in 7zBackup.ps1"
 
 Write-Host "`n Case: totals of two extensions and files without extension"
 # 2 .txt files of 1 MB in total, 1 .pdf of 2 MB, 1 empty file without extension
@@ -29,7 +28,7 @@ $Counters       = @{ Warnings = 0; Criticals = 0; FilesSelected = 4; BytesSelect
 $MyContext      = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder) })
 $BkCatalogStats = Join-Path $env:TEMP ("7zb-test-" + [guid]::NewGuid().ToString("N") + ".csv")   # no stats file: totals must come from the counters
 
-. ([scriptblock]::Create($report[0].Extent.Text))
+Write-SelectionStats
 
 $lines = @($MyContext.Logger.ToString().Split("`n") | ForEach-Object { $_.TrimEnd() })
 $pdfRow   = [array]::IndexOf($lines, @($lines | Where-Object { $_ -match '^ \.pdf\s+1\s' })[0])

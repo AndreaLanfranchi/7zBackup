@@ -15,8 +15,6 @@ Function Find-IfBlock ([string]$condition) {
 	$ast.Find({ param($n) $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq $condition }, $True)
 }
 $preActionBlock = Find-IfBlock 'Test-Variable "BkPreAction"'
-$rotationBlock  = Find-IfBlock '($BkRotate -ge 1)'
-$archivingBlock = Find-IfBlock '$BkDryRun -ne $True'
 
 $Failures = 0
 Function Assert ([bool]$condition, [string]$message) {
@@ -24,7 +22,7 @@ Function Assert ([bool]$condition, [string]$message) {
 	Else { Write-Host " FAIL : $message" -ForegroundColor Red; $script:Failures++ }
 }
 
-Assert (($null -ne $preActionBlock) -and ($null -ne $rotationBlock) -and ($null -ne $archivingBlock)) "precondition, script body blocks found"
+Assert (($null -ne $preActionBlock) -and ($null -ne (Get-Command Invoke-Rotation -ErrorAction SilentlyContinue)) -and ($null -ne (Get-Command Invoke-Archiving -ErrorAction SilentlyContinue))) "precondition, script body block and functions found"
 
 Function Reset-Context {
 	$script:MyContext = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); StartDir = $env:TEMP; SelectionStart = (Get-Date) })
@@ -61,7 +59,7 @@ $oldArchive = "srv-full-20260101-120000.7z"
 foreach ($name in $newArchive, $oldArchive) { Set-Content -LiteralPath (Join-Path $work $name) -Value $name }
 $BkDestPath = $work; $BkArchivePrefix = "srv"; $BkType = "full"; $BkArchiveName = $newArchive; $BkRotate = 1
 $lock = [System.IO.File]::Open((Join-Path $work $oldArchive), 'Open', 'ReadWrite', 'None')
-. ([scriptblock]::Create($rotationBlock.Extent.Text))
+Invoke-Rotation
 $lock.Close()
 $log = $MyContext.Logger.ToString()
 Assert (Test-Path -LiteralPath (Join-Path $work $oldArchive))                              "precondition, the locked archive is still there"
@@ -84,10 +82,10 @@ $BkCompressDetail = Join-Path $BkRootDir "Compress-Detail.txt"
 New-Item -ItemType File $BkCompressDetail -Force | Out-Null
 $Bk7ZipBin = $real7z; $BkDryRun = $False; $BkType = "copy"; $BkClearBit = $False
 $BkDestPath = "$work\dest"; $BkArchivePrefix = "test"; $BkArchiveType = "7z"; $BkArchiveName = "test-copy-20260912-120000.7z"
-$totalBytes = [int64]0; $SWriters = @{}
+$SWriters = @{}
 $BkArchiveVolumes = @("abc")   # invalid volume size: 7-Zip reports a command line error
 Set-Location -Path $BkRootDir
-. ([scriptblock]::Create($archivingBlock.Extent.Text))
+Invoke-Archiving
 Set-Location -Path $env:TEMP
 $log = $MyContext.Logger.ToString()
 Assert ($Bk7ZipRetc -eq 7)          "precondition, 7-Zip exits with 7"

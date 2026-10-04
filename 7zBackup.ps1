@@ -590,10 +590,10 @@ Function Get-ArchiveSize {
 # Function 		: Complete-Archiving
 # -----------------------------------------------------------------------------
 # Description	: This routine reprocess succesfully archived files
-# Parameters    :
+# Parameters    : $warningItems - Items 7-Zip reported while adding (see Get-SevenZipWarnings)
 # Returns       :
 # -----------------------------------------------------------------------------
-Function Complete-Archiving {
+Function Complete-Archiving ($warningItems) {
 	
 	Try {
 		[console]::TreatControlCAsInput = $True
@@ -1959,6 +1959,392 @@ Function Assert-Variables {
 
 }
 
+# -----------------------------------------------------------------------------
+# Function 		: Write-RunHeader
+# -----------------------------------------------------------------------------
+# Description	: Logs the settings of the run
+# Parameters    : -
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Write-RunHeader {
+	Trace " Started on ........ :  $((Get-Date -f "MMM dd, yyyy HH:mm:ss"))"
+	Trace " Backup Type ....... :  $BkType"
+	If($BkClearBit -eq $True)    { Trace " Files' Archive attr :  Will be cleared" } Else { Trace " Files' Archive attr :  Will stay unchanged" }
+	Trace " Selection File .... :  $BkSelection"
+	If(Test-Variable "BkMaxDepth") { Trace " Recursion Depth ... :  $BkMaxDepth" }
+	If($BkNoFollowJunctions) {Trace " Reparse points .... :  Will NOT be followed" }
+	Trace " Destination ....... :  $BkDestPath"
+	Trace " Archive Name ...... :  $BkArchiveName"
+	Trace " Archive Type ...... :  $BkArchiveType"
+	If((Test-Variable "BkRotate")) { Trace " Rotation policy ... :  Keep last $BkRotate archive(s) " } Else { Trace " Rotation policy ... :  Keep all archive(s) " }
+	Trace (" 7zip binary ....... :  {0} (ver. {1}) " -f $Bk7zipBin,$MyContext.SevenZBinVersionInfo.ProductVersion)
+	Trace (" 7zip threading .... :  {0} " -f ( & { If(Test-Variable "BkArchiveThreads") { Write-Output "$BkArchiveThreads threads" } Else { Write-Output "Auto"}   }))
+	If(Test-Variable "BkArchiveCompression") { Trace " 7zip Compression .. :  $BkArchiveCompression" } Else { Trace " 7zip Compression .. :  Auto" }
+	Trace " "
+	Trace " ------------------------------------------------------------------------------"
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: New-SourceLinks
+# -----------------------------------------------------------------------------
+# Description	: Links each "includesource=path|alias=name" directive of the
+#				  selection file into the root directory under its alias and
+#				  records it in BkSources. Missing directories, aliases already
+#				  in use and failed links are logged and skipped
+# Parameters    : -
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function New-SourceLinks {
+	Trace " Backup From Sources   "
+	Trace " ------------------------------------------------------------------------------"
+	$BkSelectionContents | Where-Object {$_ -imatch "^includesource=(.*)\|alias=(.*)"} | ForEach-Object {
+
+		$directiveLine=[string]$_
+		$directiveParts = $directiveLine.split("|", [System.StringSplitOptions]::RemoveEmptyEntries)
+		$target = $directiveParts[0].Split("=")[1]
+		$alias  = $directiveParts[1].Split("=")[1]
+
+		# Trace the selection
+		Trace " + $alias <== $Target"
+
+		# Check target exist
+		If(!(Test-Path $target -pathType Container)) {
+			Trace "   Selection directory $target does not exist. Skipping "
+		} Else {
+
+			# Check alias is not already in use
+			If((Test-Path (Join-Path $BkRootDir $alias))) {
+				Trace "   Alias $alias already in use. Skipping selection of $target"
+			} Else {
+
+				# Create the link: a junction for a local target, a symbolic link for a network one
+				If(!(New-SymLink (Join-Path -Path $BkRootDir -ChildPath $alias) $target)) { Trace "   Failed to create link [$alias] to [$target]"} Else { $BkSources.Add($alias, $target) }
+
+			}
+
+		}
+	}
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Write-SelectionStats
+# -----------------------------------------------------------------------------
+# Description	: Logs the selected files and bytes by extension, largest first,
+#				  with their share of the selection
+# Parameters    : -
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Write-SelectionStats {
+	# Do some stats (many thanks to http://www.hanselman.com/blog/ParsingCSVsAndPoorMansWebLogAnalysisWithPowerShell.aspx)
+	Write-Progress -Activity "Calculating Stats on Selection" -Status "Running ..." -CurrentOperation "Please Wait ..."
+	$statsByExtension = $Counters.Extensions.GetEnumerator() | Select-Object @{Name="Name";Expression={$_.Key}}, @{Name="Count";Expression={$_.Value[0]}}, @{Name="Size";Expression={$_.Value[1]}} | Sort-Object Size -desc
+	Write-Progress -Activity "." -Status "." -Completed
+
+	# Output summarized data
+	Trace " "
+	Trace " Selection Details"
+	Trace " ------------------------------------------------------------------------------"
+	Trace " Extension                              Count          Total MB  Abs %   Inc % "
+	Trace " -------------------------------  ----------- ----------------- ------- -------"
+	$totalCount = 0; [int64]$totalBytes = 0
+	$statsByExtension | ForEach-Object {
+		$totalCount += $_.Count ; $totalBytes += $_.Size
+		Trace (" {0,-31} {1,11:n0} {2,17:n2}  {3,6:n2}  {4,6:n2}" -f $_.Name, $_.Count, ($_.Size/1MB), ($_.Size/ $Counters.BytesSelected * 100), ($totalBytes / $Counters.BytesSelected * 100))
+	}
+	Trace "                                  ----------- ----------------- "
+	Trace (" {0,-31} {1,11:n0} {2,17:n2}" -f "Total", $totalCount, ($totalBytes/1MB))
+	Trace "                                  =========== ================= `n"
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Get-SevenZipArguments
+# -----------------------------------------------------------------------------
+# Description	: Builds the 7-Zip command line which creates the archive from
+#				  the inclusion catalog
+# Parameters    : [string]$destFile - Full path of the archive
+# Returns       : [string[]] The arguments
+# -----------------------------------------------------------------------------
+Function Get-SevenZipArguments ([string]$destFile) {
+	$arguments = @("a", "-ssw", "-slp")												# Add and update, archive files open for writing, large memory pages
+	If((Test-Variable "BkArchiveCompression") -And ($BkArchiveType -ne "tar")) { $arguments += "-mx$BkArchiveCompression" }
+	# Charset for list files and for console input/output (password input, output decoding) is UTF-8. -bd disables the progress indicator
+	$arguments += "-scsUTF-8", "-sccUTF-8", "-bd"
+
+	# If 7zip is beyond version 9.2 then add some more switches
+	If ([int]$MyContext.SevenZBinVersionInfo.Major -ge 15) {
+		$arguments += "-bb1", "-bsp0", "-bso1", "-bse2"
+		If($BkArchiveType -eq "7z") { $arguments += "-mtm=on", "-mtc=on", "-mta=on" }		# Store modified, creation and access timestamps
+	}
+
+	# Control Threading
+	If(Test-Variable "BkArchiveThreads") {
+		If($BkArchiveThreads -lt 1) { $arguments += "-mmt=off" } Else { $arguments += "-mmt=$BkArchiveThreads" }
+	}
+
+	# Control solid archives and volumes
+	If(($BkArchiveType -eq "7z") -And !($BkArchiveSolid)) { $arguments += "-ms=off" }
+	If(Test-Variable "BkArchiveVolumes") { $arguments += @($BkArchiveVolumes | ForEach-Object { "-v$_" }) }
+
+	$arguments += "-t$BkArchiveType"
+	If(Test-Variable "BkArchivePassword") {
+		$arguments += "-p" 											# Password prompt: the password goes to 7-Zip input, never on the command line
+		If($BkEncryptHeaders) { $arguments += "-mhe" }
+	}
+	$arguments += "`"$destFile`"", "`@`"$BkCatalogInclude`""								# The destination file and the catalog input file
+	$arguments
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Invoke-SevenZip
+# -----------------------------------------------------------------------------
+# Description	: Runs 7-Zip: its output goes to the Compress-Detail file, its
+#				  error lines to the log. While it runs the archive size is shown
+#				  as progress. On CTRL+C 7-Zip is killed, the archive deleted and
+#				  the exit code is 255. The process is kept in
+#				  $MyContext.SevenZipProcess
+# Parameters    : [string[]]$arguments - The 7-Zip command line
+#                 [string]$destFile    - Full path of the archive
+# Returns       : [int] The 7-Zip exit code
+# -----------------------------------------------------------------------------
+Function Invoke-SevenZip ([string[]]$arguments, [string]$destFile) {
+	Write-Verbose "7z arguments:  $($arguments -join ' ')"
+	$process = New-SevenZipProcess ($arguments -join " ") -RedirectErrors
+	$MyContext.SevenZipProcess = $process
+
+	# Initialize StreamWriter for Compress Details
+	$SWriters.CompressDetail = New-Object -TypeName System.IO.StreamWriter($BkCompressDetail, [String]$True, [System.Text.Encoding]::UTF8)
+	$SWriters.CompressDetail.AutoFlush = $True
+
+	# 7-Zip output is read by C# handlers. PowerShell event actions ran out of order, and actions
+	# still queued when 7-Zip exited were lost. Stdout goes to Compress-Detail, stderr to a queue
+	If(!("SevenZipOutput" -as [type])) {
+		Add-Type -TypeDefinition @"
+using System;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.IO;
+public class SevenZipOutput {
+	readonly ConcurrentQueue<string> errors = new ConcurrentQueue<string>();
+	public SevenZipOutput(Process process, StreamWriter detail) {
+		process.OutputDataReceived += (sender, e) => { if (!String.IsNullOrEmpty(e.Data)) { detail.WriteLine(e.Data); } };
+		process.ErrorDataReceived += (sender, e) => { if (!String.IsNullOrEmpty(e.Data)) { errors.Enqueue(e.Data); } };
+	}
+	public bool TryGetError(out string line) { return errors.TryDequeue(out line); }
+}
+"@
+	}
+	$sevenZipOutput = New-Object SevenZipOutput($process, $SWriters.CompressDetail)
+
+	# Start the clocks
+	$MyContext.CompressionStart = Get-Date
+
+	# Start Process. 7-Zip asks the password twice (enter and verify)
+	Start-SevenZip $process 2
+	[void]$process.BeginOutputReadLine()
+	[void]$process.BeginErrorReadLine()
+
+	# Begin polling Process
+	$exitCode = $null
+	While (!($process.HasExited)) {
+		Start-Sleep -Milliseconds 2500
+		$Status = "Waiting for archive ..."
+		$ArchiveSize = Get-ArchiveSize
+		If ( $ArchiveSize -gt 0 ) { $Status = "Archive Size {0,0:n2} MByte. so far ..." -f ($ArchiveSize / 1Mb) }
+
+		# Log the 7-Zip error lines received so far, in order
+		$stdErrLine = $null
+		While($sevenZipOutput.TryGetError([ref]$stdErrLine)) { Trace (" !{0}" -f $stdErrLine) }
+
+		Write-Progress -Activity "Archiving into $destFile" -Status $Status -CurrentOperation "Please wait ..."
+		If(Test-CtrlCRequest) {
+			[void]$process.Kill()
+			While (!($process.HasExited)) { Start-Sleep -Milliseconds 100 }
+			$exitCode = [int]255															# Force return code to 255
+			Start-Sleep -Milliseconds 500
+			# Delete the destination file
+			If(Test-Path -Path $destFile -PathType Leaf) { Remove-Item -LiteralPath $destFile -Force | Out-Null }
+			break
+		}
+	}
+
+	# HasExited can be true before the last output events ran: WaitForExit() without a timeout waits for them
+	$process.WaitForExit()
+	Write-Progress -Activity "." -Status "." -Completed
+	$stdErrLine = $null
+	While($sevenZipOutput.TryGetError([ref]$stdErrLine)) { Trace (" !{0}" -f $stdErrLine) }
+	If($null -eq $exitCode) { $exitCode = $process.ExitCode }
+
+	# Stop the clock
+	$MyContext.CompressionElapsed = (Get-Date) - $MyContext.CompressionStart
+
+	# Close StreamWriter for Compress Details
+	$SWriters.CompressDetail.Close()
+	$exitCode
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Get-SevenZipWarnings
+# -----------------------------------------------------------------------------
+# Description	: Reads the 7-Zip output for the selected items it could not add
+#				  (e.g. missing or locked files). 7-Zip 9 and 15+ print them
+#				  differently
+# Parameters    : -
+# Returns       : A hashtable: Messages, the lines to log, and Items, with
+#				  7-Zip 15+ the items named in a message ($True when the item is
+#				  in the catalog), otherwise $null
+# -----------------------------------------------------------------------------
+Function Get-SevenZipWarnings {
+	$warnings = @{ Messages = @(); Items = $null }
+	If ([int]$MyContext.SevenZBinVersionInfo.Major -le 9) {
+		$warnings.Messages = @(Get-Content $BkCompressDetail -encoding UTF8 | Where-Object {$_ -match "\ WARNING:\ |\ :\ "})
+	} else {
+		# 7-Zip 15+ prints "item : message" for each item it could not add. Output events
+		# may arrive out of order, so match items listed in the catalog, not positions
+		$warningLines = @(Get-Content $BkCompressDetail -encoding UTF8 | Where-Object {$_.Contains(" : ")})
+		If($warningLines.Count -gt 0) {
+			$warnings.Items = @{}
+			$warningLines | ForEach-Object { $warnings.Items[$_.Substring(0, $_.IndexOf(" : "))] = $False }
+			Get-Content $BkCatalogInclude -encoding UTF8 | Where-Object { $warnings.Items.ContainsKey($_) } | ForEach-Object { $warnings.Items[$_] = $True }
+			$warnings.Messages = @($warningLines | Where-Object { $warnings.Items[$_.Substring(0, $_.IndexOf(" : "))] })
+		}
+	}
+	$warnings
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Invoke-Rotation
+# -----------------------------------------------------------------------------
+# Description	: Lists the archives of this job (same prefix and type) in the
+#				  destination, newest first, and removes the ones beyond the
+#				  rotation count. The parts of a volume archive count as one.
+#				  Without --rotate all archives are kept
+# Parameters    : -
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Invoke-Rotation {
+	Set-DefaultVariable "BkRotate" ([int]9999)
+	$totalArchiveBytes = [int64]0
+	$fileNameRgx = ("^$([Regex]::Escape($BkArchivePrefix))-$BkType-[0-9]{8}-[0-9]{4,6}\.(7z|zip|tar)(\.\d{3})?$")
+	Trace " Archives in $BkDestPath"
+	Trace " ------------------------------------------------------------------------------"
+	Get-ChildItem $BkDestPath | Where-Object { $_.Name -match $fileNameRgx -and !$_.PSIscontainer } | Sort-Object @{expression={$_.Name};Descending=$true} | foreach-object {
+		If(!($BkRotate -le 0)) {
+			If ($_.Name.StartsWith($BkArchiveName, [StringComparison]::OrdinalIgnoreCase)) {
+				Trace (" New      : {0,-48} {1,15:n2} MB " -f $_.Name, $($_.Length / 1MB) ); $totalArchiveBytes += [int64]$_.Length
+			} Else {
+				Trace (" Kept     : {0,-48} {1,15:n2} MB " -f $_.Name, $($_.Length / 1MB) ); $totalArchiveBytes += [int64]$_.Length
+			}
+
+			# Check is volumized archive
+			If ($_.Name -match "\.(7z|zip|tar)(\.001)?$") { $BkRotate += -1 }
+
+		} Else {
+			Remove-Item -LiteralPath (Join-Path $BkDestPath $_.Name) -ErrorAction "SilentlyContinue" | Out-Null
+			if ($?) { Trace (" Removed  : {0,-48} {1,15:n2} MB " -f $_.Name, $($_.Length / 1MB) ) } Else { Trace (" WARNING Failed to remove {0}" -f $_.Name)}
+		}
+	}
+	Trace " ------------------------------------------------------------------------------"
+	Trace (" {0,-59} {1,15:n2} MB" -f "Used space by listed archives (New and Kept)", $($totalArchiveBytes / 1MB) )
+	Trace (" {0,-59} {1,15:n2} MB" -f "Remaining Free space on target", $((([int64](Get-FreeSpace -target $BkDestPath))) / 1MB) )
+	Trace " ------------------------------------------------------------------------------`n"
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Invoke-Archiving
+# -----------------------------------------------------------------------------
+# Description	: Creates the archive with 7-Zip. When it succeeded the archived
+#				  files are cleared or removed (Complete-Archiving) and the old
+#				  archives rotated. Otherwise the reason is logged and counted
+#				  as critical. The 7-Zip exit code is kept in Bk7ZipRetc
+# Parameters    : -
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Invoke-Archiving {
+
+	# Check we have enough disk space available on target path
+	$Counters.BytesAvailable = ([int64](Get-FreeSpace -target $BkDestPath))
+	If($Counters.BytesAvailable -lt $Counters.BytesSelected) {
+		Trace (" Warning !! ... you're low on space on target ")
+		Trace (" {0,-31} {1,17:n2}" -f " Required Max..............", ($Counters.BytesSelected/1MB))
+		Trace (" {0,-31} {1,17:n2}" -f " Available  ...............", ($Counters.BytesAvailable/1MB))
+		Trace (" If 7zip cannot compress enough it will fail `n")
+	}
+
+	Set-Variable -Name BkDestFile -Value (Join-Path -Path $BkDestPath -ChildPath $BkArchiveName) -Scope Script
+	Write-Progress -Activity "Archiving into $BkDestFile" -Status "Please wait ..." -CurrentOperation "Initializing ..."
+	Set-Variable -Name Bk7ZipRetc -Value (Invoke-SevenZip (Get-SevenZipArguments $BkDestFile) $BkDestFile) -Scope Script
+
+	# Look inside $BkCompressDetail in search of any file which may have been skipped
+	# e.g. 7-Zip could not find one or more selected files
+	$warnings = Get-SevenZipWarnings
+	If(!($Bk7ZipRetc -eq 255) -and $warnings.Messages) {
+		Trace " 7-Zip completed with warnings "
+		Trace " ------------------------------------------------------------------------------"
+		$warnings.Messages | ForEach-Object {
+			Trace-Warning " $_"
+		}
+		Trace " "
+	}
+
+	# Check overall size of archive (including volumes if present)
+	$ArchiveSize = Get-ArchiveSize
+
+	# Check exit code by 7zip - If ErrorLevel is <2 then we assume backup
+	# process completed successfully
+	If(($Bk7ZipRetc -lt 2) -and ($ArchiveSize -gt 0) -and !(Test-CtrlCRequest)) {
+
+		# Output informations in log file
+		Trace (" Created      : {1} in {0} " -f $BkDestPath, $BkArchiveName)
+		Trace (" Archive Size : {0,0:n2} MB = {1,2:n2}% of original size" -f ($ArchiveSize / 1Mb), ((($ArchiveSize / $Counters.BytesSelected)) * 100))
+		Trace (" 7zip time    : {0}" -f (Format-Elapsed $MyContext.CompressionElapsed))
+		Trace (" Performance  : {0,0:n2} files/sec" -f ($Counters.FilesSelected / $MyContext.CompressionElapsed.TotalSeconds) )
+		Trace (" IO Avg Speed : Read {0,0:n2} MB/Sec / Write {1,0:n2} MB/Sec" -f (($Counters.BytesSelected / $MyContext.CompressionElapsed.TotalSeconds) / 1MB), (($ArchiveSize / $MyContext.CompressionElapsed.TotalSeconds) / 1MB) )
+		Trace " "
+
+		# Do Post Archiving, then rotation over backup files
+		If(!(Test-CtrlCRequest)) { Complete-Archiving $warnings.Items }
+		If(!(Test-CtrlCRequest)) { Invoke-Rotation }
+
+		If(($Counters.Warnings -gt 0)) {
+			Trace (" Task status : Done with : " + $Counters.Warnings + " warnings. Check logs!")
+		} Else {
+			Trace " Task status : All Done !! Yuppieee"
+		}
+		$MyContext.TotalElapsed = (Get-Date) - $MyContext.SelectionStart
+		Trace (" Task time   : {0}" -f (Format-Elapsed $MyContext.TotalElapsed))
+		Trace (" Task end    : {0}`n" -f (Get-Date -f "MMM dd, yyyy HH:mm:ss") )
+
+	} Else {
+
+		# If we fall down here the 7z.exe has exited with a high error level
+		# According to 7-Zip manual the possibilities are:
+		# 0   - No error
+		# 1   - Warning (Non fatal error(s)). For example, one or more files were locked by some other application, so they were not compressed
+		# 2   - Fatal error
+		# 7   - Command line error
+		# 8   - Not Enough memory to complete operation
+		# 255 - User stopped the process
+		$fatalMessages = @{
+			255 = @(" Cancelled ! User has stopped 7-Zip archiving process", " NO ARCHIVE HAS BEEN CREATED")
+			2   = @(" Cancelled ! 7-Zip reported a fatal error.", " NO VALID ARCHIVE HAS BEEN CREATED")
+			7   = @(" Cancelled ! 7-Zip has been invoked with a wrong command line.", (" {0}" -f $MyContext.SevenZipProcess.StartInfo.Arguments), " NO VALID ARCHIVE HAS BEEN CREATED")
+			8   = @(" Cancelled ! 7-Zip reports not enough memory.", " NO VALID ARCHIVE HAS BEEN CREATED")
+		}
+		If ($fatalMessages.ContainsKey([int]$Bk7ZipRetc)) {
+			$Counters.Criticals += 1
+			Trace " "
+			$fatalMessages[[int]$Bk7ZipRetc] | ForEach-Object { Trace $_ }
+			If(Test-Path -Path $BkDestFile -PathType Leaf) { Remove-Item -LiteralPath $BkDestFile -Force | Out-Null }
+		} ElseIf (!(Test-Path -Path "$BkDestPath\$BkArchiveName" -PathType Leaf)) {
+			$Counters.Criticals += 1
+			Trace " "
+			Trace " Error !"
+			Trace " NO ARCHIVE HAS BEEN CREATED"
+		}
+
+	}
+}
+
 # ====================================================================
 # End Functions Library
 # ====================================================================
@@ -2041,57 +2427,9 @@ If($hasErrors) {
 If(Test-Variable "BkPreAction") { Invoke-Action "Pre-Action" $BkPreAction }
 
 
-# Initalize Operations
-# Output all running context informations
-Trace " Started on ........ :  $((Get-Date -f "MMM dd, yyyy HH:mm:ss"))"
-Trace " Backup Type ....... :  $BkType"
-If($BkClearBit -eq $True)    { Trace " Files' Archive attr :  Will be cleared" } Else { Trace " Files' Archive attr :  Will stay unchanged" }
-Trace " Selection File .... :  $BkSelection"
-If(Test-Variable "BkMaxDepth") { Trace " Recursion Depth ... :  $BkMaxDepth" }
-If($BkNoFollowJunctions) {Trace " Reparse points .... :  Will NOT be followed" }
-Trace " Destination ....... :  $BkDestPath"
-Trace " Archive Name ...... :  $BkArchiveName"
-Trace " Archive Type ...... :  $BkArchiveType"
-If((Test-Variable "BkRotate")) { Trace " Rotation policy ... :  Keep last $BkRotate archive(s) " } Else { Trace " Rotation policy ... :  Keep all archive(s) " }
-Trace (" 7zip binary ....... :  {0} (ver. {1}) " -f $Bk7zipBin,$MyContext.SevenZBinVersionInfo.ProductVersion)
-Trace (" 7zip threading .... :  {0} " -f ( & { If(Test-Variable "BkArchiveThreads") { Write-Output "$BkArchiveThreads threads" } Else { Write-Output "Auto"}   }))
-If(Test-Variable "BkArchiveCompression") { Trace " 7zip Compression .. :  $BkArchiveCompression" } Else { Trace " 7zip Compression .. :  Auto" }
-Trace " "
-Trace " ------------------------------------------------------------------------------"
-
-Trace " Backup From Sources   "
-Trace " ------------------------------------------------------------------------------"
-# --------------------------------------------------------------------
-# Read the contents of selection file and create a junction for each one 
-# --------------------------------------------------------------------
-
-$BkSelectionContents | Where-Object {$_ -imatch "^includesource=(.*)\|alias=(.*)"} | ForEach-Object {
-	
-	$directiveLine=[string]$_
-	$directiveParts = $directiveLine.split("|", [System.StringSplitOptions]::RemoveEmptyEntries)
-	$target = $directiveParts[0].Split("=")[1]
-	$alias  = $directiveParts[1].Split("=")[1]
-	
-	# Trace the selection
-	Trace " + $alias <== $Target"
-	
-	# Check target exist
-	If(!(Test-Path $target -pathType Container)) { 
-		Trace "   Selection directory $target does not exist. Skipping "
-	} Else {
-		
-		# Check alias is not already in use
-		If((Test-Path (Join-Path $BkRootDir $alias))) {
-			Trace "   Alias $alias already in use. Skipping selection of $target"
-		} Else {
-			
-			# Create the link: a junction for a local target, a symbolic link for a network one
-			If(!(New-SymLink (Join-Path -Path $BkRootDir -ChildPath $alias) $target)) { Trace "   Failed to create link [$alias] to [$target]"} Else { $BkSources.Add($alias, $target) }
-			
-		}
-		
-	}
-}
+# Log the settings of the run, then link the sources into the root directory
+Write-RunHeader
+New-SourceLinks
 
 # --------------------------------------------------------------------
 # Check we have at least one directory alias to backup 
@@ -2234,295 +2572,23 @@ If(($Counters.FilesSelected -lt 1) -or (Test-CtrlCRequest)) {
 	Return
 }
 
-	# Adjust at least 1byte selected (in case all files are zero length)
-	# This will prevent division by zero errors
-	$Counters.BytesSelected = [Math]::Max($Counters.BytesSelected, 1)
+# Adjust at least 1byte selected (in case all files are zero length)
+# This will prevent division by zero errors
+$Counters.BytesSelected = [Math]::Max($Counters.BytesSelected, 1)
 
-	
-	# Maybe there has been some exceptions during the selection progress. 
-	# If this is the case output them here.
-	$selectionExceptions = @(Get-Content $BkSelectionExcpt | Select-Object -Skip 1)   # first line is the header
-	If($selectionExceptions.Count -gt 0) {
-		Trace "`n Exceptions during selection process"
-		Trace " ------------------------------------------------------------------------------"
-		$selectionExceptions | ForEach-Object {
+# Maybe there has been some exceptions during the selection progress.
+# If this is the case output them here.
+$selectionExceptions = @(Get-Content $BkSelectionExcpt | Select-Object -Skip 1)   # first line is the header
+If($selectionExceptions.Count -gt 0) {
+	Trace "`n Exceptions during selection process"
+	Trace " ------------------------------------------------------------------------------"
+	$selectionExceptions | ForEach-Object {
 		Trace-Warning (" {0} " -f $_)
-		}
 	}
-	
-	If(!(Test-CtrlCRequest)) {
-		# Do some stats (many thanks to http://www.hanselman.com/blog/ParsingCSVsAndPoorMansWebLogAnalysisWithPowerShell.aspx)
-		Write-Progress -Activity "Calculating Stats on Selection" -Status "Running ..." -CurrentOperation "Please Wait ..."
-		$statsByExtension = $Counters.Extensions.GetEnumerator() | Select-Object @{Name="Name";Expression={$_.Key}}, @{Name="Count";Expression={$_.Value[0]}}, @{Name="Size";Expression={$_.Value[1]}} | Sort-Object Size -desc
-		Write-Progress -Activity "." -Status "." -Completed
-		
-		# Output summarized data
-		Trace " "
-		Trace " Selection Details"
-		Trace " ------------------------------------------------------------------------------"
-		Trace " Extension                              Count          Total MB  Abs %   Inc % "
-		Trace " -------------------------------  ----------- ----------------- ------- -------"
-		$totalCount = 0; [int64]$totalBytes = 0
-		$statsByExtension | ForEach-Object {
-		$totalCount += $_.Count ; $totalBytes += $_.Size
-		Trace (" {0,-31} {1,11:n0} {2,17:n2}  {3,6:n2}  {4,6:n2}" -f $_.Name, $_.Count, ($_.Size/1MB), ($_.Size/ $Counters.BytesSelected * 100), ($totalBytes / $Counters.BytesSelected * 100))
-		}
-		Trace "                                  ----------- ----------------- "
-		Trace (" {0,-31} {1,11:n0} {2,17:n2}" -f "Total", $totalCount, ($totalBytes/1MB))
-		Trace "                                  =========== ================= `n"
-		
-
-	}
-	
-	
-	If($BkDryRun -ne $True) {
-
-		# Check we have enough disk space available on target path
-		$Counters.BytesAvailable = ([int64](Get-FreeSpace -target $BkDestPath))
-		If($Counters.BytesAvailable -lt $totalBytes) {
-			Trace (" Warning !! ... you're low on space on target ")
-			Trace (" {0,-31} {1,17:n2}" -f " Required Max..............", ($totalBytes/1MB))
-			Trace (" {0,-31} {1,17:n2}" -f " Available  ...............", ($Counters.BytesAvailable/1MB))
-			Trace (" If 7zip cannot compress enough it will fail `n")
-		}
-
-	
-		$BkDestFile = (Join-Path -Path $BkDestPath -ChildPath $BkArchiveName)
-		Write-Progress -Activity "Archiving into $BkDestFile" -Status "Please wait ..." -CurrentOperation "Initializing ..."	
-
-		# Compose arguments which will be passed to command line
-		$Bk7ZipArgs = @("a", "-ssw", "-slp")												# Add and update, archive files open for writing, large memory pages
-		If((Test-Variable "BkArchiveCompression") -And ($BkArchiveType -ne "tar")) { $Bk7ZipArgs += "-mx$BkArchiveCompression" }
-		# Charset for list files and for console input/output (password input, output decoding) is UTF-8. -bd disables the progress indicator
-		$Bk7ZipArgs += "-scsUTF-8", "-sccUTF-8", "-bd"
-		
-		# If 7zip is beyond version 9.2 then add some more switches
-		If ([int]$MyContext.SevenZBinVersionInfo.Major -ge 15) {
-			$Bk7ZipArgs += "-bb1", "-bsp0", "-bso1", "-bse2"
-			If($BkArchiveType -eq "7z") { $Bk7ZipArgs += "-mtm=on", "-mtc=on", "-mta=on" }		# Store modified, creation and access timestamps
-		}
-		
-		# Control Threading
-		If(Test-Variable "BkArchiveThreads") {
-			If($BkArchiveThreads -lt 1) { $Bk7ZipArgs += "-mmt=off" } Else { $Bk7ZipArgs += "-mmt=$BkArchiveThreads" }
-		}
-		
-		# Control solid archives and volumes
-		If(($BkArchiveType -eq "7z") -And !($BkArchiveSolid)) { $Bk7ZipArgs += "-ms=off" }
-		If(Test-Variable "BkArchiveVolumes") { $Bk7ZipArgs += @($BkArchiveVolumes | ForEach-Object { "-v$_" }) }
-	
-		$Bk7ZipArgs += "-t$BkArchiveType"
-		If(Test-Variable "BkArchivePassword") { 
-			$Bk7ZipArgs += "-p" 											# Password prompt: the password goes to 7-Zip input, never on the command line
-			If($BkEncryptHeaders) { $Bk7ZipArgs += "-mhe" }
-		}
-		$Bk7ZipArgs += "`"$BkDestFile`"", "`@`"$BkCatalogInclude`""								# The destination file and the catalog input file
-		
-		# Create Process
-		If(Test-Variable "Bk7ZipRetc") { Remove-Variable -Name Bk7ZipRetc }
-		Write-Verbose "7z arguments:  $($Bk7ZipArgs -join ' ')"
-		$oProcess = New-SevenZipProcess ($Bk7ZipArgs -join " ") -RedirectErrors
-
-		# Initialize StreamWriter for Compress Details
-		$SWriters.CompressDetail = New-Object -TypeName System.IO.StreamWriter($BkCompressDetail, [String]$True, [System.Text.Encoding]::UTF8)
-		$SWriters.CompressDetail.AutoFlush = $True
-		
-		# 7-Zip output is read by C# handlers. PowerShell event actions ran out of order, and actions
-		# still queued when 7-Zip exited were lost. Stdout goes to Compress-Detail, stderr to a queue
-		If(!("SevenZipOutput" -as [type])) {
-			Add-Type -TypeDefinition @"
-using System;
-using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.IO;
-public class SevenZipOutput {
-	readonly ConcurrentQueue<string> errors = new ConcurrentQueue<string>();
-	public SevenZipOutput(Process process, StreamWriter detail) {
-		process.OutputDataReceived += (sender, e) => { if (!String.IsNullOrEmpty(e.Data)) { detail.WriteLine(e.Data); } };
-		process.ErrorDataReceived += (sender, e) => { if (!String.IsNullOrEmpty(e.Data)) { errors.Enqueue(e.Data); } };
-	}
-	public bool TryGetError(out string line) { return errors.TryDequeue(out line); }
 }
-"@
-		}
-		$sevenZipOutput = New-Object SevenZipOutput($oProcess, $SWriters.CompressDetail)
-		
-		# Start the clocks
-		$MyContext.CompressionStart = Get-Date
-		
-		# Start Process. 7-Zip asks the password twice (enter and verify)
-		Start-SevenZip $oProcess 2
-		[void]$oProcess.BeginOutputReadLine()
-		[void]$oProcess.BeginErrorReadLine()		
-		
-		# Begin polling Process
-		While (!($oProcess.HasExited)) {
-			Start-Sleep -Milliseconds 2500
-			$Status = "Waiting for archive ..."
-			$ArchiveSize = Get-ArchiveSize
-			If ( $ArchiveSize -gt 0 ) { $Status = "Archive Size {0,0:n2} MByte. so far ..." -f ($ArchiveSize / 1Mb) }
-			
-			# Log the 7-Zip error lines received so far, in order
-			$stdErrLine = $null
-			While($sevenZipOutput.TryGetError([ref]$stdErrLine)) { Trace (" !{0}" -f $stdErrLine) }
-			
-			
-			Write-Progress -Activity "Archiving into $BkDestFile" -Status $Status -CurrentOperation "Please wait ..."
-			If(Test-CtrlCRequest) {
-				[void]$oProcess.Kill()
-				While (!($oProcess.HasExited)) { Start-Sleep -Milliseconds 100 }
-				Set-Variable -Name Bk7ZipRetc -value ([int]255) -scope Script				# Force return code to 255
-				Start-Sleep -Milliseconds 500
-				# Delete the destination file
-				If(Test-Path -Path $BkDestFile -PathType Leaf) { Remove-Item -LiteralPath $BkDestFile -Force | Out-Null }
-				break
-			}
-		}
-		
-		# HasExited can be true before the last output events ran: WaitForExit() without a timeout waits for them
-		$oProcess.WaitForExit()
-		Write-Progress -Activity "." -Status "." -Completed
-		$stdErrLine = $null
-		While($sevenZipOutput.TryGetError([ref]$stdErrLine)) { Trace (" !{0}" -f $stdErrLine) }
 
-		# Retrieve ExitCode if not already defined
-		Set-DefaultVariable "Bk7ZipRetc" $oProcess.ExitCode
-		
-		# Stop the clock
-		$MyContext.CompressionElapsed = (Get-Date) - $MyContext.CompressionStart
-		
-		
-		# Close StreamWriter for Compress Details
-		$SWriters.CompressDetail.Flush()
-		$SWriters.CompressDetail.Close()
-		$SWriters.CompressDetail.Dispose()
-		
-		# Version 9.x  and 15.x of 7zip have different outputs
-		# Look inside $BkCompressDetail in search of any file which may have been skipped
-		# e.g. 7-Zip could not find one or more selected files 
-		If ([int]$MyContext.SevenZBinVersionInfo.Major -le 9) {
-			$relevantMessages = Get-Content $BkCompressDetail -encoding UTF8 | Where-Object {$_ -match "\ WARNING:\ |\ :\ "}
-		} else {
-			# 7-Zip 15+ prints "item : message" for each item it could not add. Output events
-			# may arrive out of order, so match items listed in the catalog, not positions
-			$relevantMessages = @()
-			$warningLines = @(Get-Content $BkCompressDetail -encoding UTF8 | Where-Object {$_.Contains(" : ")})
-			If($warningLines.Count -gt 0) {
-				$warningItems = @{}
-				$warningLines | ForEach-Object { $warningItems[$_.Substring(0, $_.IndexOf(" : "))] = $False }
-				Get-Content $BkCatalogInclude -encoding UTF8 | Where-Object { $warningItems.ContainsKey($_) } | ForEach-Object { $warningItems[$_] = $True }
-				$relevantMessages = @($warningLines | Where-Object { $warningItems[$_.Substring(0, $_.IndexOf(" : "))] })
-			}
-		}
-		
-		#If any relevant message then output
-		If(!($Bk7ZipRetc -eq 255) -and $relevantMessages) {
-			Trace " 7-Zip completed with warnings "
-			Trace " ------------------------------------------------------------------------------"
-			$relevantMessages | ForEach-Object {
-				Trace-Warning " $_"
-			}
-			Trace " "
-		}
-		
-		# Check overall size of archive (including volumes if present)
-		$ArchiveSize = Get-ArchiveSize
+If(!(Test-CtrlCRequest)) { Write-SelectionStats }
 
-		# Check exit code by 7zip - If ErrorLevel is <2 then we assume backup
-		# process completed successfully
-		If(($Bk7ZipRetc -lt 2) -and ($ArchiveSize -gt 0) -and !(Test-CtrlCRequest)) {
-			
-			# Output informations in log file 
-			Trace (" Created      : {1} in {0} " -f $BkDestPath, $BkArchiveName)
-			Trace (" Archive Size : {0,0:n2} MB = {1,2:n2}% of original size" -f ($ArchiveSize / 1Mb), ((($ArchiveSize / $Counters.BytesSelected)) * 100))
-			Trace (" 7zip time    : {0}" -f (Format-Elapsed $MyContext.CompressionElapsed))
-			Trace (" Performance  : {0,0:n2} files/sec" -f ($Counters.FilesSelected / $MyContext.CompressionElapsed.TotalSeconds) )
-			Trace (" IO Avg Speed : Read {0,0:n2} MB/Sec / Write {1,0:n2} MB/Sec" -f (($Counters.BytesSelected / $MyContext.CompressionElapsed.TotalSeconds) / 1MB), (($ArchiveSize / $MyContext.CompressionElapsed.TotalSeconds) / 1MB) )
-			Trace " "
-				
-			
-			# Do Post Archiving
-			If(!(Test-CtrlCRequest)) { Complete-Archiving ; }
-			
-			# Do rotation over backup files
-			# We have to list all files in the destination directory matching the same prefix and the same type
-			# list all items descending (by their creation date) and then delete the oldest out of
-			# the rotation range. If no rotation is defined then assume rotation period is 999 so we
-			# can easily have an output of archives on target media.
-			If(!(Test-CtrlCRequest)) {
-				Set-DefaultVariable "BkRotate" ([int]9999)
-				If(($BkRotate -ge 1)) {
-					$totalArchiveBytes = [int64]0
-					$fileNameRgx = ("^$([Regex]::Escape($BkArchivePrefix))-$BkType-[0-9]{8}-[0-9]{4,6}\.(7z|zip|tar)(\.\d{3})?$")
-					Trace " Archives in $BkDestPath"
-					Trace " ------------------------------------------------------------------------------"
-					Get-ChildItem $BkDestPath | Where-Object { $_.Name -match $fileNameRgx -and !$_.PSIscontainer } | Sort-Object @{expression={$_.Name};Descending=$true} | foreach-object {
-						If(!($BkRotate -le 0)) { 
-							If ($_.Name.StartsWith($BkArchiveName, [StringComparison]::OrdinalIgnoreCase)) {
-								Trace (" New      : {0,-48} {1,15:n2} MB " -f $_.Name, $($_.Length / 1MB) ); $totalArchiveBytes += [int64]$_.Length
-							} Else {
-								Trace (" Kept     : {0,-48} {1,15:n2} MB " -f $_.Name, $($_.Length / 1MB) ); $totalArchiveBytes += [int64]$_.Length
-							}
-							
-							# Check is volumized archive
-							If ($_.Name -match "\.(7z|zip|tar)(\.001)?$") { $BkRotate += -1 }
-							
-						} Else {
-							Remove-Item -LiteralPath (Join-Path $BkDestPath $_.Name) -ErrorAction "SilentlyContinue" | Out-Null
-							if ($?) { Trace (" Removed  : {0,-48} {1,15:n2} MB " -f $_.Name, $($_.Length / 1MB) ) } Else { Trace (" WARNING Failed to remove {0}" -f $_.Name)}
-						}
-					}
-					Trace " ------------------------------------------------------------------------------"
-					Trace (" {0,-59} {1,15:n2} MB" -f "Used space by listed archives (New and Kept)", $($totalArchiveBytes / 1MB) )
-					Trace (" {0,-59} {1,15:n2} MB" -f "Remaining Free space on target", $((([int64](Get-FreeSpace -target $BkDestPath))) / 1MB) )
-					Trace " ------------------------------------------------------------------------------`n"
-					
-				}
-			}
-		
-			If(($Counters.Warnings -gt 0)) {
-				Trace (" Task status : Done with : " + $Counters.Warnings + " warnings. Check logs!")
-			} Else {
-				Trace " Task status : All Done !! Yuppieee"
-			}
-			$MyContext.TotalElapsed = (Get-Date) - $MyContext.SelectionStart
-			Trace (" Task time   : {0}" -f (Format-Elapsed $MyContext.TotalElapsed))
-			Trace (" Task end    : {0}`n" -f (Get-Date -f "MMM dd, yyyy HH:mm:ss") )
-			
-		} Else {
-
-			# If we fall down here the 7z.exe has exited with a high error level
-			# According to 7-Zip manual the possibilities are:
-			# 0   - No error
-			# 1   - Warning (Non fatal error(s)). For example, one or more files were locked by some other application, so they were not compressed
-			# 2   - Fatal error
-			# 7   - Command line error
-			# 8   - Not Enough memory to complete operation
-			# 255 - User stopped the process
-			$fatalMessages = @{
-				255 = @(" Cancelled ! User has stopped 7-Zip archiving process", " NO ARCHIVE HAS BEEN CREATED")
-				2   = @(" Cancelled ! 7-Zip reported a fatal error.", " NO VALID ARCHIVE HAS BEEN CREATED")
-				7   = @(" Cancelled ! 7-Zip has been invoked with a wrong command line.", (" {0}" -f $oProcess.StartInfo.Arguments), " NO VALID ARCHIVE HAS BEEN CREATED")
-				8   = @(" Cancelled ! 7-Zip reports not enough memory.", " NO VALID ARCHIVE HAS BEEN CREATED")
-			}
-			If ($fatalMessages.ContainsKey([int]$Bk7ZipRetc)) {
-				$Counters.Criticals += 1
-				Trace " "
-				$fatalMessages[[int]$Bk7ZipRetc] | ForEach-Object { Trace $_ }
-				If(Test-Path -Path $BkDestFile -PathType Leaf) { Remove-Item -LiteralPath $BkDestFile -Force | Out-Null }
-			} ElseIf (!(Test-Path -Path "$BkDestPath\$BkArchiveName" -PathType Leaf)) {
-				$Counters.Criticals += 1
-				Trace " " 
-				Trace " Error !" 
-				Trace " NO ARCHIVE HAS BEEN CREATED" 
-			}
-			
-			
-		}
-	}
-	Else {
-		Trace " Dry Run Selected ! No Archive creation."
-	}
-	
+If($BkDryRun -ne $True) { Invoke-Archiving } Else { Trace " Dry Run Selected ! No Archive creation." }
 # Post action, notification email and clean up
 Complete-Run
