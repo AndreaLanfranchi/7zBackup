@@ -1,4 +1,4 @@
-# Tests for small helpers: Trace-Warning, Test-Path-Writable and the 7-Zip binary lookup in Assert-Variables.
+# Tests for small helpers: Trace-Warning, Test-WritablePath and the 7-Zip binary lookup in Assert-Variables.
 #
 # Usage: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\SmallHelpers.Test.ps1
 
@@ -28,12 +28,12 @@ Assert ($Counters.Warnings -eq 2)                                               
 Assert ($MyContext.Logger.ToString().Contains(" first") -and $MyContext.Logger.ToString().Contains(" second")) "and is logged"
 Assert ($output.Contains("first") -and $output.Contains("second"))                              "and shown on the console"
 
-Write-Host "`n Case: Test-Path-Writable"
-Assert ((Test-Path-Writable $work "File") -eq $True)                       "a writable folder is accepted with a file test"
-Assert ((Test-Path-Writable $work "Directory") -eq $True)                  "and with a directory test"
+Write-Host "`n Case: Test-WritablePath"
+Assert ((Test-WritablePath $work "File") -eq $True)                       "a writable folder is accepted with a file test"
+Assert ((Test-WritablePath $work "Directory") -eq $True)                  "and with a directory test"
 Assert (@(Get-ChildItem -LiteralPath $work -Force | Where-Object { $_.Name -match "^[0-9a-f]{8}-" }).Count -eq 0) "the test item is removed"
-Assert ((Test-Path-Writable "$work\missing" "File") -eq $False)            "a missing folder is refused"
-Assert ((Test-Path-Writable "$work\dest\none.txt" "Directory") -eq $False) "a path which is not a folder is refused"
+Assert ((Test-WritablePath "$work\missing" "File") -eq $False)            "a missing folder is refused"
+Assert ((Test-WritablePath "$work\dest\none.txt" "Directory") -eq $False) "a path which is not a folder is refused"
 
 # A real binary with a version, standing in for 7z.exe
 $exe = [System.Management.Automation.PSObject].Assembly.Location

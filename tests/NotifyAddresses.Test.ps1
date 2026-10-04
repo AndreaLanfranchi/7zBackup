@@ -1,4 +1,4 @@
-# Integration test for notification addresses (IsValidEmailAddress and the
+# Integration test for notification addresses (Test-EmailAddress and the
 # address checks in Assert-Variables).
 # Valid addresses must be accepted; an invalid address must be dropped with a
 # warning, without stopping the job.
@@ -23,10 +23,10 @@ Function Assert ([bool]$condition, [string]$message) {
 # -----------------------------------------------------------------------------
 Write-Host "`n Case: address syntax"
 foreach ($address in "a@x.com", "john+tag@example.com", "1user@example.com", "first.last@mail.example.co.uk", "backup-admin@example.com") {
-	Assert (IsValidEmailAddress $address) "valid:   $address"
+	Assert (Test-EmailAddress $address) "valid:   $address"
 }
 foreach ($address in "no-at-sign.example.com", "two@@example.com", "user@nodot", "user@example.c", "user name@example.com", "@example.com", "user@") {
-	Assert (!(IsValidEmailAddress $address)) "invalid: $address"
+	Assert (!(Test-EmailAddress $address)) "invalid: $address"
 }
 
 # -----------------------------------------------------------------------------

@@ -50,7 +50,7 @@ $version = "2.3.0-Stable"
 $Error.Clear()
 $ErrorActionPreference = "SilentlyContinue"
 
-Set-Variable -Name "MyContext" -Value ([hashtable]::Synchronized(@{})) -Scope Script
+Set-Variable -Name "MyContext" -Value @{} -Scope Script
 $MyContext.Name       = $MyInvocation.MyCommand.Name
 $MyContext.Definition = $MyInvocation.MyCommand.Definition
 $MyContext.Directory  = (Split-Path (Resolve-Path $MyInvocation.MyCommand.Definition) -Parent)
@@ -274,18 +274,6 @@ $helpText = @"
 # Start Functions Library
 # ====================================================================
 
-# Legend for Attributes bits on files
-# - Normal ....... (n) ==> 0
-# - Hidden ....... (h) ==> 2
-# - ReadOnly ..... (r) ==> 1
-# - System ....... (s) ==> 4
-# - Directory .... (d) ==> 16
-# - Archive ...... (a) ==> 32
-# - ReparsePoint . (j) ==> 1024
-
-# Load Attributes Names in array for usage in functions
-#$attrNames = [enum]::getNames([System.IO.FileAttributes]);
-
 # -----------------------------------------------------------------------------
 # Function 		: Invoke-PostAction
 # -----------------------------------------------------------------------------
@@ -396,54 +384,54 @@ Function Clear-Script {
 
 
 # -----------------------------------------------------------------------------
-# Function 		: IsValidEmailAddress
+# Function 		: Test-EmailAddress
 # -----------------------------------------------------------------------------
 # Description	: This function is used to check if a given string is an email
 #                 address.
 # Parameters    : [string]emailAddress - The string to check
 # Returns       : $True / $False
 # -----------------------------------------------------------------------------
-Function IsValidEmailAddress { 
+Function Test-EmailAddress {
 	param([string]$emailAddress = $(throw "You must provide an address"))
 	$emailAddress -match "^[a-zA-Z0-9]([\w\.+-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([\w\.-]*[a-zA-Z0-9])?\.[a-zA-Z][a-zA-Z\.]*[a-zA-Z]$"
 }	
 
 # -----------------------------------------------------------------------------
-# Function 		: IsValidHostName
+# Function 		: Test-HostName
 # -----------------------------------------------------------------------------
 # Description	: This function is used to check if a given string is a
 #                 valid host name.
 # Parameters    : [string]hostName - The string to check
 # Returns       : $True / $False
 # -----------------------------------------------------------------------------
-Function IsValidHostName { 
+Function Test-HostName {
 	param([string]$hostName = $(throw "You must provide an host name"))
 	$hostName -match "^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z]|[A-Za-z][A-Za-z0-9\-]*[A-Za-z0-9])$"
 }	
 
 # -----------------------------------------------------------------------------
-# Function 		: GetDestPathFreeSpace
+# Function 		: Get-FreeSpace
 # -----------------------------------------------------------------------------
 # Description	: This function is used to check how much available space is
 #                 available on destpath.
 # Parameters    : [string]DestPath - The Path To Check
 # Returns       : Long Integer
 # -----------------------------------------------------------------------------
-Function GetDestPathFreeSpace {
+Function Get-FreeSpace {
 	param([string]$target = $(throw "You must provide a location to check"))
 	
 	Return [int64]((New-Object -ComObject Scripting.FileSystemObject).GetDrive([System.IO.Path]::GetPathRoot($target)).AvailableSpace)
 }
 
 # -----------------------------------------------------------------------------
-# Function 		: IsValidIPAddress
+# Function 		: Test-IPAddress
 # -----------------------------------------------------------------------------
 # Description	: This function is used to check if a given string is an IP
 #                 address.
 # Parameters    : [string]ipAddress - The string to check
 # Returns       : $True / $False
 # -----------------------------------------------------------------------------
-Function IsValidIPAddress { 
+Function Test-IPAddress {
 	param([string]$ipAddress = $(throw "You must provide an address"))
 	[System.Net.IPAddress]::TryParse($ipAddress, [ref]$null)
 }	
@@ -516,13 +504,13 @@ Function New-RootDir {
 }
 
 # -----------------------------------------------------------------------------
-# Function 		: PostArchiving
+# Function 		: Complete-Archiving
 # -----------------------------------------------------------------------------
 # Description	: This routine reprocess succesfully archived files
-# Parameters    : 
-# Returns       : 
+# Parameters    :
+# Returns       :
 # -----------------------------------------------------------------------------
-Function PostArchiving {
+Function Complete-Archiving {
 	
 	Try {
 		[console]::TreatControlCAsInput = $True
@@ -697,16 +685,16 @@ Function Trace-ScanProgress ($folder, [string]$operation) {
 }
 
 # -----------------------------------------------------------------------------
-# Function 		: ProcessFolder
+# Function 		: Invoke-FolderScan
 # -----------------------------------------------------------------------------
 # Description	: This is the main scanning/selection routine.
-#				  It's purpouse is to recurse all the folders below the 
+#				  It's purpouse is to recurse all the folders below the
 #                 given root in search of files to backup
 # Parameters    : [string]$folderPath - The name of the directory to scan
 #                 [int]$depth - Depth level reached
 # Returns       : $True / $False
 # -----------------------------------------------------------------------------
-Function ProcessFolder ($thisFolder) {
+Function Invoke-FolderScan ($thisFolder) {
 
 	Try {
 		[console]::TreatControlCAsInput = $True
@@ -929,10 +917,8 @@ Function ProcessFolder ($thisFolder) {
 # Returns       : $True / $False
 # -----------------------------------------------------------------------------
 Function Remove-RootDir {
-	param([string]$rootPath = $(throw "You must provide a path to the directory")) 
-	
-	Write-Debug "About to remove root-dir"
-	
+	param([string]$rootPath = $(throw "You must provide a path to the directory"))
+
 	If (Test-Path -Path $rootPath -PathType Container) {
 		Set-Variable -Name "junctionsRemoved" -Value $True -Scope Private | Out-Null
 		# foreach, not ForEach-Object: there Return leaves only the current link and the next success hides the failure
@@ -1233,13 +1219,13 @@ Function Test-Lock {
 }
 
 # -----------------------------------------------------------------------------
-# Function 		: Test-Path-Writable
+# Function 		: Test-WritablePath
 # -----------------------------------------------------------------------------
 # Description	: Checks a given path is writable
 # Parameters    : [string]targetPath - Full path to the directory to test
-# Returns       : $True / $False 
+# Returns       : $True / $False
 # -----------------------------------------------------------------------------
-Function Test-Path-Writable {
+Function Test-WritablePath {
 	param([string]$testPath = $(throw "You must provide a path to test"),
 	      [string]$testType = $(throw "You must provide a test item type")) 
 
@@ -1351,8 +1337,8 @@ Function Resolve-IntegerVariable ([string]$name, [int64]$minimum, [int64]$maximu
 # -----------------------------------------------------------------------------
 Function Resolve-AddressList ([string]$name, [string]$label) {
 	$addresses = @((Get-Variable -Name $name -Scope Script -ErrorAction SilentlyContinue).Value)
-	$addresses | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace-Warning (" Warning : Invalid {0} address {1} ignored" -f $label, $_) }
-	$valid = @($addresses | Where-Object {IsValidEmailAddress $_})
+	$addresses | Where-Object {$_ -and !(Test-EmailAddress $_)} | ForEach-Object { Trace-Warning (" Warning : Invalid {0} address {1} ignored" -f $label, $_) }
+	$valid = @($addresses | Where-Object {Test-EmailAddress $_})
 	If($valid.Count -gt 0) { Set-Variable -Name $name -Value $valid -Scope Script } Else { Remove-Variable -Name $name -Scope Script -ErrorAction SilentlyContinue }
 }
 
@@ -1516,7 +1502,7 @@ Function Assert-Arguments {
 	# Options followed by a value: argument -> variable ($null: value accepted and ignored)
 	$valueArguments = @{
 		'--type'             = 'BkType'
-		'--workdir'          = 'BkWorkDir'
+		'--workdir'          = $null
 		'--workdrive'        = 'BkWorkDrive'
 		'--selection'        = 'BkSelection'
 		'--destpath'         = 'BkDestPath'
@@ -1624,7 +1610,7 @@ Function Assert-Variables {
 		($BkWorkDrive -is [array]) -or
 		($BkWorkDrive -notmatch "^[C-Z]{1}$") -or
 		((Test-Path ($BkWorkDrive + ":\")) -eq $False) -or
-		((Test-Path-Writable ($BkWorkDrive + ":\") "Directory") -eq $False) -or
+		((Test-WritablePath ($BkWorkDrive + ":\") "Directory") -eq $False) -or
 		((New-Object System.Io.DriveInfo($BkWorkDrive)).DriveFormat -ine "NTFS")
 	)	{ Write-Output "Missing or invalid --workdrive argument. Must be writable NTFS drive" }
 	
@@ -1688,7 +1674,7 @@ Function Assert-Variables {
 		!($BkDestPath) -Or
 		($BkDestPath -match "^\s*$") -Or
 		!(Test-Path $BkDestPath -pathType Container) -Or
-		!(Test-Path-Writable $BkDestPath "File")
+		!(Test-WritablePath $BkDestPath "File")
 	) { 
 		Write-Output ("Missing or invalid --destpath {0}." -f $BkDestPath) 
 		Write-Output ("Ensure above path is reachable and writable")
@@ -1805,7 +1791,7 @@ Function Assert-Variables {
 			Write-Output "Missing or invalid --notifyfrom argument" 
 		} Else {
 			If($BkSmtpFrom -is [array]) { Set-Variable -Name BkSmtpFrom -Value ($BkSmtpFrom -join "") -Scope Script }
-			If(!(IsValidEmailAddress $BkSmtpFrom)) { 
+			If(!(Test-EmailAddress $BkSmtpFrom)) {
 				Write-Output ("Missing or invalid --notifyfrom argument. {0} is not a valid email address" -f $BkSmtpFrom) 
 				Remove-Variable -Name BkSmtpFrom -Scope Script
 			}
@@ -1825,7 +1811,7 @@ Function Assert-Variables {
 		If($BkSmtpRelay -is [array]) { Set-Variable -Name BkSmtpRelay -Value ($BkSmtpRelay -join "") -Scope Script }
 		If(
 			!(Test-Variable "BkSmtpRelay") -Or
-			(!(IsValidHostName $BkSmtpRelay) -And !(IsValidIPAddress $BkSmtpRelay))
+			(!(Test-HostName $BkSmtpRelay) -And !(Test-IPAddress $BkSmtpRelay))
 		) { 
 			Write-Output "Missing or invalid --smtpserver argument" 
 			Remove-Variable -Name BkSmtpRelay -Scope Script
@@ -1996,7 +1982,7 @@ If(Test-Variable "BkPreAction") {
 
 # Initalize Operations
 # Output all running context informations
-Trace " Started on ........ :  $((Get-Date -f "MMM dd, yyyy hh:mm:ss"))"
+Trace " Started on ........ :  $((Get-Date -f "MMM dd, yyyy HH:mm:ss"))"
 Trace " Backup Type ....... :  $BkType"
 If($BkClearBit -eq $True)    { Trace " Files' Archive attr :  Will be cleared" } Else { Trace " Files' Archive attr :  Will stay unchanged" }
 Trace " Selection File .... :  $BkSelection"
@@ -2136,7 +2122,7 @@ $BkSources.GetEnumerator() | ForEach-Object {
 # Walk through catalogFolders to process each one
 While ($True) {
 	If(Test-CtrlCRequest) {break}
-	ProcessFolder $catalogFolders[$catalogFoldersIndex] | Out-Null
+	Invoke-FolderScan $catalogFolders[$catalogFoldersIndex] | Out-Null
 	If (!(++$catalogFoldersIndex -lt $catalogFolders.Count)) {Write-Progress -Activity "." -Status "." -Completed; break}
 }
 If($MyContext.Cancelling) {
@@ -2161,16 +2147,10 @@ If($Counters.FilesSelected -gt 0) {
 	}
 }
 
-# Include non existent file
-# $SWriters.Inclusions.WriteLine("qwerty.txt")
-
 # --------------------------------------------------------------------
-# Close StreamWriters letting enough time to flush buffers
+# Close StreamWriters (Close flushes)
 # --------------------------------------------------------------------
-$SWriters.GetEnumerator() | ForEach-Object { 
-	$_.Value.Flush()
-	If($_.Name -notmatch "^Log$") {$_.Value.Close()} 
-} -End { Start-Sleep -Milliseconds 500 }
+$SWriters.GetEnumerator() | ForEach-Object { $_.Value.Close() }
 
 
 # Calc of elapsed time for selection process
@@ -2246,7 +2226,7 @@ If(($Counters.FilesSelected -lt 1) -or (Test-CtrlCRequest)) {
 	If($BkDryRun -ne $True) {
 
 		# Check we have enough disk space available on target path
-		$Counters.BytesAvailable = ([int64](GetDestPathFreeSpace -target $BkDestPath))
+		$Counters.BytesAvailable = ([int64](Get-FreeSpace -target $BkDestPath))
 		If($Counters.BytesAvailable -lt $totalBytes) {
 			Trace (" Warning !! ... you're low on space on target ")
 			Trace (" {0,-31} {1,17:n2}" -f " Required Max..............", ($totalBytes/1MB))
@@ -2436,7 +2416,7 @@ public class SevenZipOutput {
 				
 			
 			# Do Post Archiving
-			If(!(Test-CtrlCRequest)) { PostArchiving ; }
+			If(!(Test-CtrlCRequest)) { Complete-Archiving ; }
 			
 			# Do rotation over backup files
 			# We have to list all files in the destination directory matching the same prefix and the same type
@@ -2468,7 +2448,7 @@ public class SevenZipOutput {
 					}
 					Trace " ------------------------------------------------------------------------------"
 					Trace (" {0,-59} {1,15:n2} MB" -f "Used space by listed archives (New and Kept)", $($totalArchiveBytes / 1MB) )
-					Trace (" {0,-59} {1,15:n2} MB" -f "Remaining Free space on target", $((([int64](GetDestPathFreeSpace -target $BkDestPath))) / 1MB) )
+					Trace (" {0,-59} {1,15:n2} MB" -f "Remaining Free space on target", $((([int64](Get-FreeSpace -target $BkDestPath))) / 1MB) )
 					Trace " ------------------------------------------------------------------------------`n"
 					
 				}
@@ -2481,13 +2461,10 @@ public class SevenZipOutput {
 			}
 			$MyContext.TotalElapsed = (Get-Date) - $MyContext.SelectionStart
 			Trace (" Task time   : {0}" -f (Format-Elapsed $MyContext.TotalElapsed))
-			Trace (" Task end    : {0}`n" -f (Get-Date -f "MMM dd, yyyy hh:mm:ss") )
+			Trace (" Task end    : {0}`n" -f (Get-Date -f "MMM dd, yyyy HH:mm:ss") )
 			
 		} Else {
-		
-			# Uncomment this line if you want to read the details of 7-Zip log of operations
-			#[string]::join([environment]::newline, (Get-Content -path $BkCompressDetail -encoding ASCII)) 
-		
+
 			# If we fall down here the 7z.exe has exited with a high error level
 			# According to 7-Zip manual the possibilities are:
 			# 0   - No error

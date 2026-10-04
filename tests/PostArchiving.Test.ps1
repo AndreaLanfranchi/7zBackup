@@ -1,4 +1,4 @@
-# Integration test for PostArchiving.
+# Integration test for Complete-Archiving.
 # Only files really stored in the archive may be deleted (move) or have
 # their Archive bit cleared (full / incr).
 # 7-Zip prints "+ file" for a file it cannot open, exits with code 1 and
@@ -51,7 +51,7 @@ Function Invoke-Case {
 	$list = Join-Path $work "root\Catalog-Include.txt"
 	[System.IO.File]::WriteAllLines($list, [string[]]($names | ForEach-Object { "Alias\$_" }), (New-Object System.Text.UTF8Encoding $True))
 
-	# State PostArchiving reads from script scope
+	# State Complete-Archiving reads from script scope
 	$script:BkType           = $type
 	$script:BkClearBit       = $clearBit
 	$script:BkDryRun         = $False
@@ -79,7 +79,7 @@ Function Invoke-Case {
 	If($corruptArchive) { Set-Content -LiteralPath $script:BkDestFile -Value "not an archive" }
 
 	$Error.Clear()
-	PostArchiving
+	Complete-Archiving
 
 	If(!$corruptArchive) {
 		$performance = [regex]::Match($script:MyContext.Logger.ToString(), 'Performance\s+:\s+([0-9.,]+) files/sec').Groups[1].Value

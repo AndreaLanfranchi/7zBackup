@@ -1,4 +1,4 @@
-# Test for GetDestPathFreeSpace: free bytes of the drive or share holding a path.
+# Test for Get-FreeSpace: free bytes of the drive or share holding a path.
 #
 # Usage: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\FreeSpace.Test.ps1
 
@@ -21,17 +21,17 @@ $drive    = [System.IO.Path]::GetPathRoot($env:TEMP)
 $expected = ([System.IO.DriveInfo]$drive).AvailableFreeSpace
 
 Write-Host "`n Case: local path"
-$free = GetDestPathFreeSpace -target $env:TEMP
+$free = Get-FreeSpace -target $env:TEMP
 Assert ($free -is [int64])                                  "returns an int64"
 Assert ([math]::Abs($free - $expected) -lt 100MB)           "matches the drive free space [$free ~ $expected]"
 
 Write-Host "`n Case: drive root"
-Assert ([math]::Abs((GetDestPathFreeSpace -target $drive) - $expected) -lt 100MB) "drive root works [$drive]"
+Assert ([math]::Abs((Get-FreeSpace -target $drive) - $expected) -lt 100MB) "drive root works [$drive]"
 
 Write-Host "`n Case: UNC path (administrative share of this PC)"
 $unc = "\\localhost\" + $drive.Substring(0, 1) + "$\Windows"
 If(Test-Path -LiteralPath $unc) {
-	Assert ([math]::Abs((GetDestPathFreeSpace -target $unc) - $expected) -lt 100MB) "UNC path works [$unc]"
+	Assert ([math]::Abs((Get-FreeSpace -target $unc) - $expected) -lt 100MB) "UNC path works [$unc]"
 } Else {
 	Write-Host " SKIP : $unc is not reachable"
 }
