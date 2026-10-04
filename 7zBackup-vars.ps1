@@ -306,25 +306,15 @@ Set-Variable -Name BkArchiveType -Value "7z" -Scope 1
 # Set-Variable -Name Bk7ZipBin -Value (Join-Path $Env:ProgramFiles "\7-zip\7z.exe") -Scope 1
 
 # --------------------------------------------------------------------
-#  Variable       : BkJunctionBin
+#  Variable       : BkJunctionBin   (OBSOLETE)
 #  Argument Name  : --jbin
-#  Description    : Full path to Junction .exe
-#  Values         : 
-#  Comments   
 #  -------------------------------------------------------------------
-#  Find where Junction.exe is and set it here. If Junction.exe is in
-#  a directory within the PATH variable you can simply indicate
-#  junction.exe
-#
-#  PLEASE NOTE 
-#  If you're running the script on Vista / 7 / 2008 this variable
-#  and it's value is completely ignored. MKLINK creates junctions
-#  instead (symbolic links for network sources).
+#  Not used anymore: it was the full path to Junction.exe, needed only
+#  by Windows XP and 2003, which are not supported anymore. MKLINK
+#  creates junctions (symbolic links for network sources).
+#  A value left here from an older version is simply ignored. The
+#  --jbin command line argument is accepted but ignored, with a warning.
 #  -------------------------------------------------------------------
-#  Uncomment the following Set-Variable statement and set proper
-#  "<value>" if you want to set the value for the 7zBackup script.
-#  -------------------------------------------------------------------
-Set-Variable -Name BkJunctionBin -Value (Join-Path $Env:ProgramFiles  "\SysInternalsSuite\Junction.exe") -Scope 1
 
 # --------------------------------------------------------------------
 #  Variable       : BkNotifyLog

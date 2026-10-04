@@ -26,7 +26,7 @@ $selection = Join-Path $work "selection.txt"
 # Runs Assert-Variables on a selection file with the given lines; returns the errors
 Function Invoke-Validation ([string[]]$lines) {
 	Set-Content -LiteralPath $selection -Value $lines
-	$script:MyContext       = [hashtable]::Synchronized(@{ PSVer = [int]$PSVersionTable.PSVersion.Major; WinVer = @("10"); Logger = (New-Object System.Text.StringBuilder) })
+	$script:MyContext       = [hashtable]::Synchronized(@{ PSVer = [int]$PSVersionTable.PSVersion.Major; Logger = (New-Object System.Text.StringBuilder) })
 	$script:BkType          = "full"
 	$script:BkSelection     = $selection
 	$script:BkDestPath      = "$work\dest"

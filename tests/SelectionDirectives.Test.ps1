@@ -35,7 +35,7 @@ Set-Content -LiteralPath $selection -Value @(
 )
 
 # State as after Assert-Arguments, with compression also given on the command line
-$MyContext            = [hashtable]::Synchronized(@{ PSVer = [int]$PSVersionTable.PSVersion.Major; WinVer = @("10"); Logger = (New-Object System.Text.StringBuilder) })
+$MyContext            = [hashtable]::Synchronized(@{ PSVer = [int]$PSVersionTable.PSVersion.Major; Logger = (New-Object System.Text.StringBuilder) })
 $BkType               = "full"
 $BkSelection          = $selection
 $BkDestPath           = "$work\dest"

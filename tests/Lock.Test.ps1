@@ -25,7 +25,7 @@ $BkLockFile = Join-Path $work "7zBackup.lock"
 $BkRootDir  = Join-Path $work "newroot"
 $ownTicks   = (Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks
 
-Function Reset-Context { $script:MyContext = [hashtable]::Synchronized(@{ StartDir = $env:TEMP; WinVer = @("10") }) }
+Function Reset-Context { $script:MyContext = [hashtable]::Synchronized(@{ StartDir = $env:TEMP }) }
 Function Write-Lock ([string]$procId, [string]$ticks, [string]$root) {
 	Set-Content -LiteralPath $BkLockFile -Value @("PID=$procId", "Start=$ticks", "Root=$root") -Encoding Ascii
 }

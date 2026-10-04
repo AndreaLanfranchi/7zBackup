@@ -27,7 +27,7 @@ Set-Content -LiteralPath $selection -Value "includesource=$work\source|alias=Sou
 # Runs Assert-Variables with an otherwise valid notification setup and the given user / password; returns the errors
 Function Invoke-Validation ([hashtable]$credentials) {
 	foreach ($name in "BkNotifyLog", "BkNotifyLogCc", "BkNotifyLogBcc", "BkSmtpUser", "BkSmtpPass") { Remove-Variable -Name $name -Scope Script }
-	$script:MyContext       = [hashtable]::Synchronized(@{ PSVer = [int]$PSVersionTable.PSVersion.Major; WinVer = @("10"); Logger = (New-Object System.Text.StringBuilder) })
+	$script:MyContext       = [hashtable]::Synchronized(@{ PSVer = [int]$PSVersionTable.PSVersion.Major; Logger = (New-Object System.Text.StringBuilder) })
 	$script:Counters        = @{ Warnings = 0 }
 	$script:BkType          = "full"
 	$script:BkSelection     = $selection

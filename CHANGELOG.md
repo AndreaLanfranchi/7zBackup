@@ -3,6 +3,12 @@
 Changes to 7zBackup.ps1, newest version first. Categories: Bug, Feat (feature), Code, Speed, Sec (security),
 Ui (user interface). Some old entries use Minor or New, or have no category.
 
+## Unreleased
+
+- Code: Windows XP and 2003 are no longer supported (the oldest system is Windows Server 2008 SP2): New-Junction, Remove-Junction, the junction.exe search and the Windows version branches are gone. Links are always made with MKLINK
+- Code: --jbin and BkJunctionBin are obsolete: --jbin is accepted and ignored with a warning, a BkJunctionBin left in a vars file is ignored silently
+- Bug: The PowerShell version check could never fail (it asked for 2.0 while the script needs 3.0, and it ran after the first PowerShell 3 cmdlet). It now asks for 3.0 and says so
+
 ## 2.2.0-Stable (2026-10-04, Anlan)
 
 - Code: The sample selection file says a folder excluded by matchexcludepath is still listed, and that matchstoprecurse stops it

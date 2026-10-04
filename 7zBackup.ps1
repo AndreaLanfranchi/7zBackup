@@ -6,19 +6,10 @@
 # DESCRIPTION	: This script will help you automate the backup process
 #				  of your data using 7zip compression program.
 #				  When job is done a detailed report is produced.
-# OS			: Microsoft Windows 2000 	(NOT tested)
-#				  Microsoft Windows XP 		(tested)
-#				  Microsoft Windows 2003	(tested)
-#				  Microsoft Windows Vista	(tested)
-#				  Microsoft Windows 7    	(tested)
-#				  Microsoft Windows 2008	(tested)
-#				  Microsoft Windows 8    	(tested)
-#				  Microsoft Windows 8.1    	(tested)
-#				  Microsoft Windows 10    	(tested)
-#				  Microsoft Windows 2008   	(tested)
-#				  Microsoft Windows 2012   	(tested)
+# OS			: Microsoft Windows Server 2008 SP2 or Windows Vista SP2, or newer
+#				  (tested up to Windows 10 and Windows Server 2012)
 # REQUIREMENTS	: 7zip (http://www.7-Zip.org/download.html)
-#				  Junction v1.05 (http://technet.microsoft.com/en-us/sysinternals/bb896768.aspx)
+#				  Windows PowerShell 3.0 or newer
 #				  NTFS File System with support for junctions or 
 #                 symbolic links
 # --------------------------------------------------------------------
@@ -64,7 +55,6 @@ $MyContext.Name       = $MyInvocation.MyCommand.Name
 $MyContext.Definition = $MyInvocation.MyCommand.Definition
 $MyContext.Directory  = (Split-Path (Resolve-Path $MyInvocation.MyCommand.Definition) -Parent)
 $MyContext.StartDir   = (Get-Location -PSProvider FileSystem).ProviderPath
-$MyContext.WinVer     = (Get-CimInstance -ClassName Win32_OperatingSystem).Version.Split(".")
 $MyContext.PSVer      = [int]$PSVersionTable.PSVersion.Major
 $MyContext.Cancelling = $False
 $MyContext.DummyFile  = ".7zb"
@@ -84,7 +74,7 @@ $helpText = @"
  Usage : .\7zBackup.ps1 --type < full | incr | diff | copy | move >
                         --selection < full path to file name >
                         --destpath < destination path >
-                       [--jbin < path to Junction.exe > ]
+                       [--jbin < path to Junction.exe > ] OBSOLETE, IGNORED
 					   
                        -- Job specific switches --					  
                        [--dry]						
@@ -224,11 +214,9 @@ $helpText = @"
                If the argument is not provided the script will try to
                locate 7z.exe in program files folders
 			   
- --jbin        Specify full path to Junction.exe. 
-               If the argument is not provided the script will try to
-               locate Junction.exe in program files folders
-               This parameter is optional when the script is invoked
-               on Windows systems which support MKLINK.
+ --jbin        OBSOLETE (ignored, with a warning). It was the full path to
+               Junction.exe, needed only by Windows XP and 2003, which are
+               not supported anymore: Windows Vista and newer use MKLINK.
 			  
  --logfile     Where to log backup operations. If empty will be
                generated automatically.
@@ -461,36 +449,6 @@ Function IsValidIPAddress {
 }	
 
 # -----------------------------------------------------------------------------
-# Function 		: New-Junction
-# -----------------------------------------------------------------------------
-# Description	: Creates a Junction by the means of SysInternals' Junction.exe
-# Parameters    : [string]jPath    - Full path to the name of the junction
-#				  [string]jTarget  - Full path to the target 
-# Returns       : $True / $False
-# -----------------------------------------------------------------------------
-Function New-Junction {
-	param(
-		[string]$jPath = $(throw "You must provide a path where to create the Junction"), 
-		[string]$jTarget = $(throw "You must provide a path to target")
-	)
-	
-	# Before we make any junction we have to test target
-	# path exist
-	If(Test-Path -Path $jTarget) {
-	
-		# Junction it (from alias)
-		Invoke-Expression (('& "{0}" /accepteula "{1}" "{2}"') -f $BkJunctionBin, $jPath, $jTarget) 
-		Start-Sleep -Milliseconds 10
-		
-		# Test is present
-		Return (Test-Path -Path $jPath)
-
-		
-	}
-	Write-Output $False
-}
-
-# -----------------------------------------------------------------------------
 # Function 		: Test-NetworkPath
 # -----------------------------------------------------------------------------
 # Description	: Tells whether a path is on the network: UNC path or network drive
@@ -506,7 +464,7 @@ Function Test-NetworkPath ([string]$path) {
 # Function 		: New-SymLink
 # -----------------------------------------------------------------------------
 # Description	: Links a path to Target: a junction for a local target, a symbolic
-#				  link for a network target (only available for WinVer 6+)
+#				  link for a network target
 # Parameters    : [string]jPath    - Full path to the name of the junction
 #				  [string]jTarget  - Full path to the target 
 # Returns       : $True / $False
@@ -549,11 +507,7 @@ Function New-RootDir {
 	If(!$?) { 
 		Return ("Unable to create directory {0}. Check permissions." -f $BkRootDir)
 	} Else {
-		If([int]$MyContext.WinVer[0] -lt 6 ) {
-			New-Item (Join-Path -Path $BkRootDir -ChildPath "__README__PLEASE__README__.txt") -type File -value "This directory contains Junctions.`nDO NOT DELETE THIS DIRECTORY AND IT'S CONTENTS USING WINDOWS EXPLORER.`nUse Junction -d to delete junctions and then safely delete the directory." | Out-Null
-		} Else {
-			New-Item (Join-Path -Path $BkRootDir -ChildPath "__README__PLEASE__README__.txt") -type File -value "This directory contains junctions or symbolic links.`nDO NOT DELETE THIS DIRECTORY AND IT'S CONTENTS USING WINDOWS EXPLORER.`nUse the RD command to delete the links and then safely delete the directory, use cmd /c rmdir <thesymlink'sname> in case of using Powershell." | Out-Null
-		}
+		New-Item (Join-Path -Path $BkRootDir -ChildPath "__README__PLEASE__README__.txt") -type File -value "This directory contains junctions or symbolic links.`nDO NOT DELETE THIS DIRECTORY AND IT'S CONTENTS USING WINDOWS EXPLORER.`nUse the RD command to delete the links and then safely delete the directory, use cmd /c rmdir <thesymlink'sname> in case of using Powershell." | Out-Null
 		If(!$?) {
 			Return ("Can't write into {0}. Check permissions." -f $BkRootDir)
 		}
@@ -966,30 +920,6 @@ Function ProcessFolder ($thisFolder) {
 }
 
 # -----------------------------------------------------------------------------
-# Function 		: Remove-Junction
-# -----------------------------------------------------------------------------
-# Description	: Removes a Junction by the means of SysInternals' Junction.exe
-# Parameters    : [string]jPath    - Full path to the name of the junction
-# Returns       : $True / $False
-# -----------------------------------------------------------------------------
-Function Remove-Junction  {
-	param([string]$jPath = $(throw "You must provide a path to the junction")) 
-
-	# Check Junction Path exist otherwise we have nothing to unJunction
-	If((Test-Path $jPath)) {
-
-		# UnJunction it
-		Invoke-Expression (('& "{0}" /accepteula -d "{1}"') -f $BkJunctionBin, $jPath) 
-		Start-Sleep -Milliseconds 10
-		
-		# Test is no more present !!
-		Return ((Test-Path -Path $jPath) -eq $False)
-		
-	}
-	Write-Output $False
-}
-
-# -----------------------------------------------------------------------------
 # Function 		: Remove-RootDir
 # -----------------------------------------------------------------------------
 # Description	: This function safely removes the Root Directory generated for
@@ -1007,13 +937,8 @@ Function Remove-RootDir {
 	If (Test-Path -Path $rootPath -PathType Container) {
 		Set-Variable -Name "junctionsRemoved" -Value $True -Scope Private | Out-Null
 		Get-ChildItem -Path $rootPath | Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } | ForEach-Object {
-			If([int]$MyContext.WinVer[0] -lt 6) {
-				$junctionsRemoved = Remove-Junction $_.FullName
-				If(!$junctionsRemoved) {Return}
-			} Else {
-				$junctionsRemoved = Remove-SymLink $_.FullName
-				If(!$junctionsRemoved) {Return}
-			}
+			$junctionsRemoved = Remove-SymLink $_.FullName
+			If(!$junctionsRemoved) {Return}
 		}
 		If($junctionsRemoved -And (@(Get-ChildItem -Path $rootPath | Where-Object {$_.PsIsContainer}).Count -eq 0) ) {
 			Remove-Item -Path $rootPath -Recurse -Force | Out-Null
@@ -1562,6 +1487,21 @@ Function Read-MatchRule ([string[]]$lines, [string]$name, [string]$title, [strin
 }
 
 # -----------------------------------------------------------------------------
+# Function 		: Trace-ObsoleteArguments
+# -----------------------------------------------------------------------------
+# Description	: Warns about command line arguments which are accepted for
+#				  old command lines but have no effect anymore
+# Parameters    : -
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Trace-ObsoleteArguments {
+	If($BkArguments -contains "--jbin") {
+		Trace " Warning : --jbin is obsolete and ignored: Windows XP and 2003 are not supported anymore"
+		$Counters.Warnings++
+	}
+}
+
+# -----------------------------------------------------------------------------
 # Function 		: Assert-Arguments
 # -----------------------------------------------------------------------------
 # Description	: This function is used to check input arguments
@@ -1607,7 +1547,7 @@ Function Assert-Arguments {
 		'--mailkitpath'      = 'BkMailKitPath'
 		'--7zbin'            = 'Bk7ZipBin'
 		'--7zipbin'          = 'Bk7ZipBin'
-		'--jbin'             = 'BkJunctionBin'
+		'--jbin'             = $null
 		'--pre'              = 'BkPreAction'
 		'--post'             = 'BkPostAction'
 	}
@@ -1645,9 +1585,9 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Environment - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
-	# Check we're on Powershell 3.x. If not early exit.
-	If($MyContext.PSVer -lt 2) {
-		Return ("You must be on PowerShell 2.x (or better) to run this script. You're on {0}" -f $MyContext.PSVer)
+	# Check we're on Powershell 3.0 or better. If not early exit.
+	If($MyContext.PSVer -lt 3) {
+		Return ("You must be on PowerShell 3.0 (or better) to run this script. You're on {0}" -f $MyContext.PSVer)
 	}
 
 	# --------------------------------------------------------------------------------------------------------------------------
@@ -1945,28 +1885,6 @@ Function Assert-Variables {
 		}
 	}
 
-	# --------------------------------------------------------------------------------------------------------------------------
-	# Junction.exe binary - Checks
-	# --------------------------------------------------------------------------------------------------------------------------
-	# On Vista / 7 / 2008 native MKLINK is used instead
-	If([int]$MyContext.WinVer[0] -lt 6) {
-
-		If(!(Test-Variable "BkJunctionBin")) { 
-			${Env:ProgramFiles}, ${Env:ProgramFiles(x86)} | ForEach-Object {
-				If(Test-Path -Path (Join-Path -Path $_ -ChildPath "\SysInternalsSuite\junction.exe") -PathType Leaf) {
-				Set-Variable -Name BkJunctionBin -value  (Join-Path -Path $_ -ChildPath "\SysInternalsSuite\junction.exe") -scope Script
-				}
-			}
-		}
-	
-		If(
-			!(Test-Variable "BkJunctionBin") -Or
-			($BkJunctionBin -match "^\s*$") -Or
-			!(Test-Path -Path $BkJunctionBin -pathType Leaf)
-		) 
-			{ Write-Output "Missing or invalid --jbin argument" }
-	}
-	
 }
 
 # ====================================================================
@@ -2023,6 +1941,7 @@ Set-Variable -Name hasErrors -Value $False -Scope Script
 Set-Variable -Name BkArguments -Value $args -Scope Script
 
 Assert-Arguments | ForEach-Object { $hasErrors = $True; Trace " Err : $_" }
+Trace-ObsoleteArguments
 Assert-Variables | ForEach-Object { $hasErrors = $True; Trace " Err : $_" }
 If($hasErrors) { Trace ("`n Try .\{0} --help `n" -f $MyInvocation.MyCommand.Name); $Counters.Criticals = 1; Send-Notification; Return }
 
@@ -2113,13 +2032,8 @@ $BkSelectionContents | Where-Object {$_ -imatch "^includesource=(.*)\|alias=(.*)
 			Trace "   Alias $alias already in use. Skipping selection of $target"
 		} Else {
 			
-			If([int]$MyContext.WinVer[0] -lt 6 ) { 
-				# Create the new junction for Windows previous to vista
-				If(!(New-Junction (Join-Path -Path $BkRootDir -ChildPath $alias) $target)) { Trace "   Failed to create Junction [$alias] to [$target]"} Else { $BkSources.Add($alias, $target) }
-			} Else {
-				# Create the link for Windows Vista or newer: a junction for a local target
-				If(!(New-SymLink (Join-Path -Path $BkRootDir -ChildPath $alias) $target)) { Trace "   Failed to create link [$alias] to [$target]"} Else { $BkSources.Add($alias, $target) }
-			}
+			# Create the link: a junction for a local target, a symbolic link for a network one
+			If(!(New-SymLink (Join-Path -Path $BkRootDir -ChildPath $alias) $target)) { Trace "   Failed to create link [$alias] to [$target]"} Else { $BkSources.Add($alias, $target) }
 			
 		}
 		
