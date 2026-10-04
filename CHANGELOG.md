@@ -3,7 +3,7 @@
 Changes to 7zBackup.ps1, newest version first. Categories: Bug, Feat (feature), Code, Speed, Sec (security),
 Ui (user interface). Some old entries use Minor or New, or have no category.
 
-## Unreleased
+## 2.3.0-Stable (2026-10-04, Anlan)
 
 - Bug: Remove-RootDir hid a failed link removal when the next link was removed: Return inside ForEach-Object left only the current link. It now stops at the first failure and reports it
 - Bug: With 7-Zip in both Program Files folders the 32-bit one was used, because the lookup kept the last hit. The native one is now used

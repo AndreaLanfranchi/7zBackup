@@ -20,7 +20,7 @@
 #
 # Version history: see CHANGELOG.md (newest first). For a new version, update
 # $version below and add its entry at the top of CHANGELOG.md
-$version = "2.2.0-Stable"
+$version = "2.3.0-Stable"
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
