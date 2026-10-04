@@ -69,6 +69,16 @@ On Windows Server 2008 SP2 (not R2) also:
 * TLS 1.2 support comes with update KB4019276. If its installer says the update does not apply, a later Windows update may already have installed it: `C:\Windows\System32\schannel.dll` version 6.0.6002.24129 or newer (e.g. 6.0.6003.x) has it.
 * WMF 3.0 is not compatible with some server products (e.g. Exchange Server 2007 and 2010, SharePoint 2010, Small Business Server 2008 and 2011): check Microsoft's WMF 3.0 notes before installing it.
 
+## Microsoft Defender Controlled Folder Access
+Controlled Folder Access (Windows 10 and later) blocks changes to files in protected folders (Documents, Pictures, ...) by apps it does not trust. If it is on, the script can not clear the archive bit (`--clearbit`) nor delete files (`--type move`) in those folders: each file is logged as `FAILED` and counted as a warning.
+
+To fix it, allow the program that runs the script:
+1. Open Windows Security, then *Virus & threat protection*, *Ransomware protection*, *Manage ransomware protection*.
+2. Choose *Allow an app through Controlled Folder Access*, then *Add an allowed app*.
+3. Add `powershell.exe` (Windows PowerShell), or `pwsh.exe` if you run PowerShell 7. Use the full path, e.g. `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`.
+
+If the archive is written into a protected folder, allow `7z.exe` too.
+
 ## Features
 * Backup your files in compressed archives by 7-zip (7z format or zip or tar)
 * Full, Differential, Incremental and Copy Backups

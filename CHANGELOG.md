@@ -5,6 +5,7 @@ Ui (user interface). Some old entries use Minor or New, or have no category.
 
 ## Unreleased
 
+- Code: README explains how to allow powershell.exe in Microsoft Defender Controlled Folder Access, which blocks clearing the archive bit and deleting files in protected folders
 - Ui: The "Archiving into" progress bar stayed on screen after 7-Zip ended: it is now cleared when the process exits
 - Bug: --volumes accepted any text containing a digit and a letter or pipe (abc10b); now only a number and b, k, m or g. On Windows XP/2003 the junction.exe search in Program Files used a parameter Test-Path does not have and never worked. Rotation labels New by name start, not by pattern match
 - Code: The 7-Zip exit codes 255, 2, 7 and 8 are handled from one table, and rotation counts the first archive part with one regex
