@@ -282,27 +282,44 @@ $helpText = @"
 # Credits       : 
 # -----------------------------------------------------------------------------
 Function Invoke-PostAction {
+	If(Test-Variable "BkPostAction") { Invoke-Action "Post-Action" $BkPostAction }
+}
 
-	# --------------------------------------------------------------------------------
-	# Execute post Action if we have any 
-	# --------------------------------------------------------------------------------
-	If(Test-Variable "BkPostAction") {
-
-		Trace " Invoking Post-Action (Output follows if any)"
-		Trace " ------------------------------------------------------------------------------"
-		Try {
-			& $BkPostAction 2>&1 | Set-Variable -Name "postActionOutput" -Scope Script
-			$postActionOutput | ForEach-Object {
-				Trace " $_"
-			}
-		} Catch {
-			Trace (" {0}" -f $_.Exception.Message)
-		}
-		Trace " ------------------------------------------------------------------------------"
-		Trace " "
-		
+# -----------------------------------------------------------------------------
+# Function 		: Invoke-Action
+# -----------------------------------------------------------------------------
+# Description	: Runs a pre or post action (a script file or a script block)
+#				  and logs its output, or its error
+# Parameters    : [string]$label - "Pre-Action" or "Post-Action", for the log
+#                 $action        - The script path or script block
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Invoke-Action ([string]$label, $action) {
+	Trace " Invoking $label (Output follows if any)"
+	Trace " ------------------------------------------------------------------------------"
+	Try {
+		& $action 2>&1 | ForEach-Object { Trace " $_" }
+	} Catch {
+		Trace (" {0}" -f $_.Exception.Message)
 	}
+	Trace " ------------------------------------------------------------------------------"
+	Trace " "
+}
 
+# -----------------------------------------------------------------------------
+# Function 		: Complete-Run
+# -----------------------------------------------------------------------------
+# Description	: Ends the run: post action and notification email, unless the
+#				  user cancelled, then cleanup
+# Parameters    : -
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Complete-Run {
+	If(!(Test-CtrlCRequest)) {
+		Invoke-PostAction
+		Send-Notification
+	}
+	Clear-Script
 }
 
 # -----------------------------------------------------------------------------
@@ -504,6 +521,72 @@ Function New-RootDir {
 }
 
 # -----------------------------------------------------------------------------
+# Function 		: New-SevenZipProcess
+# -----------------------------------------------------------------------------
+# Description	: Prepares a 7-Zip process, not started: output redirected as
+#				  UTF-8, input redirected when there is an archive password
+# Parameters    : [string]$arguments      - The 7-Zip command line
+#                 [switch]$RedirectErrors - Also redirect the error output
+# Returns       : The process (see Start-SevenZip)
+# -----------------------------------------------------------------------------
+Function New-SevenZipProcess ([string]$arguments, [switch]$RedirectErrors) {
+	$startInfo = New-Object -TypeName System.Diagnostics.ProcessStartInfo
+	$startInfo.FileName = $Bk7ZipBin
+	$startInfo.Arguments = $arguments
+	$startInfo.WorkingDirectory = $BkRootDir
+	$startInfo.UseShellExecute = $False
+	$startInfo.CreateNoWindow = $True
+	$startInfo.RedirectStandardOutput = $True
+	$startInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+	$startInfo.RedirectStandardError = [bool]$RedirectErrors
+	If($RedirectErrors) { $startInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8 }
+	$startInfo.RedirectStandardInput = (Test-Variable "BkArchivePassword")
+	$process = New-Object -TypeName System.Diagnostics.Process
+	$process.StartInfo = $startInfo
+	$process
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Start-SevenZip
+# -----------------------------------------------------------------------------
+# Description	: Starts a process made by New-SevenZipProcess. The archive
+#				  password, when set, is written to its input as many times as
+#				  7-Zip asks for it: never on the command line
+# Parameters    : $process      - The process to start
+#                 [int]$prompts - How many times 7-Zip asks the password
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Start-SevenZip ($process, [int]$prompts) {
+	# .NET Framework opens redirected input with Console.InputEncoding: in a UTF-8 console it puts
+	# a BOM before the password. Start with UTF-8 without BOM, then restore the console encoding
+	$savedInputEncoding = [Console]::InputEncoding
+	If(Test-Variable "BkArchivePassword") { Try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $False } Catch {} }
+	Try { [void]$process.Start() } Finally { Try { [Console]::InputEncoding = $savedInputEncoding } Catch {} }
+	If(Test-Variable "BkArchivePassword") {
+		# 7-Zip reads the password as UTF-8 (-sccUTF-8)
+		$passwordBytes = (New-Object System.Text.UTF8Encoding $False).GetBytes(($BkArchivePassword + "`r`n") * $prompts)
+		$process.StandardInput.BaseStream.Write($passwordBytes, 0, $passwordBytes.Length)
+		$process.StandardInput.Close()
+	}
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Get-ArchiveSize
+# -----------------------------------------------------------------------------
+# Description	: Total size of the archive being written, volumes included.
+#				  A folder listing reports the size an open file had when its
+#				  entry was last updated, often 0 while 7-Zip writes: Refresh
+#				  reads the current size of each file
+# Parameters    : -
+# Returns       : [int64] bytes
+# -----------------------------------------------------------------------------
+Function Get-ArchiveSize {
+	$size = [int64]0
+	Get-ChildItem -Path $BkDestPath -Filter ("{0}*" -f $BkArchiveName) | Where-Object { !$_.PSIsContainer } | ForEach-Object { $_.Refresh(); $size += $_.Length }
+	$size
+}
+
+# -----------------------------------------------------------------------------
 # Function 		: Complete-Archiving
 # -----------------------------------------------------------------------------
 # Description	: This routine reprocess succesfully archived files
@@ -534,23 +617,9 @@ Function Complete-Archiving {
 	If(Test-Variable "BkCompressDetailItems") { Remove-Variable -Name BkCompressDetailItems -Scope Script}
 	$archiveToList = $BkDestFile
 	If(!(Test-Path -LiteralPath $archiveToList -PathType Leaf)) { $archiveToList = "$BkDestFile.001" }
-	$oListStartInfo = New-Object -TypeName System.Diagnostics.ProcessStartInfo
-	$oListStartInfo.FileName = $Bk7ZipBin
-	$oListStartInfo.Arguments = "l -slt -sccUTF-8 `"$archiveToList`""
-	$oListStartInfo.RedirectStandardInput = (Test-Variable "BkArchivePassword")   # no -p: 7-Zip asks the password on its input when it needs it
-	$oListStartInfo.RedirectStandardOutput = $True
-	$oListStartInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-	$oListStartInfo.UseShellExecute = $False
-	$oListStartInfo.CreateNoWindow = $True
-	# .NET Framework puts a BOM before redirected input in a UTF-8 console: start with UTF-8 without BOM
-	$savedInputEncoding = [Console]::InputEncoding
-	If(Test-Variable "BkArchivePassword") { Try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $False } Catch {} }
-	Try { $oListProcess = [System.Diagnostics.Process]::Start($oListStartInfo) } Finally { Try { [Console]::InputEncoding = $savedInputEncoding } Catch {} }
-	If(Test-Variable "BkArchivePassword") {
-		$passwordBytes = (New-Object System.Text.UTF8Encoding $False).GetBytes($BkArchivePassword + "`r`n")
-		$oListProcess.StandardInput.BaseStream.Write($passwordBytes, 0, $passwordBytes.Length)
-		$oListProcess.StandardInput.Close()
-	}
+	# No -p: 7-Zip asks the password once on its input when it needs it
+	$oListProcess = New-SevenZipProcess "l -slt -sccUTF-8 `"$archiveToList`""
+	Start-SevenZip $oListProcess 1
 	# Read line by line: -slt prints about ten lines per item, too much for a single string
 	# Entries follow the "----------" line. The "Path = " line above it is the archive itself
 	$archivedItems = New-Object System.Collections.Generic.List[string]
@@ -1019,6 +1088,35 @@ Function Get-MailKitSocketOption {
 }
 
 # -----------------------------------------------------------------------------
+# Function 		: Get-NotificationContent
+# -----------------------------------------------------------------------------
+# Description	: What the notification email carries, the same for SmtpClient
+#				  and MailKit: recipients, subject, urgency, body (the log, with
+#				  the extra report files inline) and the files to attach
+# Parameters    : -
+# Returns       : A hashtable: To, Cc, Bcc, Subject, Urgent, Body, Attachments
+# -----------------------------------------------------------------------------
+Function Get-NotificationContent {
+	$content = @{
+		To          = @($BkNotifyLog)
+		Cc          = @($BkNotifyLogCc  | Where-Object { $_ })
+		Bcc         = @($BkNotifyLogBcc | Where-Object { $_ })
+		Subject     = $BkMailSubject
+		Urgent      = (($Counters.Warnings -gt 0) -Or ($Counters.Criticals -gt 0))
+		Body        = $MyContext.Logger.ToString()
+		Attachments = @()
+	}
+	If($Counters.Criticals -gt 0) { $content.Subject = "Critical ! $BkMailSubject" }
+	If($BkNotifyExtra -ne "none") {
+		foreach ($file in Get-NotificationExtras) {
+			If($BkNotifyExtra -ieq "attach") { $content.Attachments += $file.FullName }
+			Else { $content.Body += ("`n`n{0}`n" -f $file.Name) + (Get-Content $file) }
+		}
+	}
+	$content
+}
+
+# -----------------------------------------------------------------------------
 # Function 		: Send-MailKitNotification
 # -----------------------------------------------------------------------------
 # Description	: Sends the notification email with MailKit (see Import-MailKit)
@@ -1028,23 +1126,18 @@ Function Get-MailKitSocketOption {
 # -----------------------------------------------------------------------------
 Function Send-MailKitNotification {
 
+	$content = Get-NotificationContent
 	$message = New-Object MimeKit.MimeMessage
 	$message.From.Add([MimeKit.MailboxAddress]::Parse($BkSmtpFrom))
-	foreach ($address in @($BkNotifyLog))    { $message.To.Add([MimeKit.MailboxAddress]::Parse($address)) }
-	foreach ($address in @($BkNotifyLogCc))  { If($address) { $message.Cc.Add([MimeKit.MailboxAddress]::Parse($address)) } }
-	foreach ($address in @($BkNotifyLogBcc)) { If($address) { $message.Bcc.Add([MimeKit.MailboxAddress]::Parse($address)) } }
-	$message.Subject = $BkMailSubject
-	If(($Counters.Criticals -gt 0)) { $message.Subject = "Critical ! $BkMailSubject" }
-	If(($Counters.Warnings -gt 0) -Or ($Counters.Criticals -gt 0)) { $message.Priority = [MimeKit.MessagePriority]::Urgent }
+	foreach ($address in $content.To)  { $message.To.Add([MimeKit.MailboxAddress]::Parse($address)) }
+	foreach ($address in $content.Cc)  { $message.Cc.Add([MimeKit.MailboxAddress]::Parse($address)) }
+	foreach ($address in $content.Bcc) { $message.Bcc.Add([MimeKit.MailboxAddress]::Parse($address)) }
+	$message.Subject = $content.Subject
+	If($content.Urgent) { $message.Priority = [MimeKit.MessagePriority]::Urgent }
 
 	$body = New-Object MimeKit.BodyBuilder
-	$body.TextBody = $MyContext.Logger.ToString()
-	If ($BkNotifyExtra -ne "none") {
-		foreach ($file in Get-NotificationExtras) {
-			If($BkNotifyExtra -ieq "attach") { [void]$body.Attachments.Add($file.FullName) }
-			Else { $body.TextBody += ("`n`n{0}`n" -f $file.Name) + (Get-Content $file) }
-		}
-	}
+	$body.TextBody = $content.Body
+	foreach ($path in $content.Attachments) { [void]$body.Attachments.Add($path) }
 	$message.Body = $body.ToMessageBody()
 
 	$client = New-Object MailKit.Net.Smtp.SmtpClient
@@ -1107,34 +1200,21 @@ Function Send-Notification {
 				$SmtpClient.Credentials = $SmtpUserInfo
 			}
 
-			If(($Counters.Warnings -gt 0)) { $MailMessage.Priority = [System.Net.Mail.MailPriority]::High }
-			If(($Counters.Criticals -gt 0)) { $MailMessage.Priority = [System.Net.Mail.MailPriority]::High; $BkMailSubject = "Critical ! $BkMailSubject" }
+			$content = Get-NotificationContent
+			If($content.Urgent) { $MailMessage.Priority = [System.Net.Mail.MailPriority]::High }
 			$MailMessage.From = $BkSmtpFrom
-			
-			foreach ($address in @($BkNotifyLog)) { $MailMessage.To.Add($address) }
-			If($BkNotifyLogCc)  { foreach ($address in @($BkNotifyLogCc))  { $MailMessage.Cc.Add($address) } }
-			If($BkNotifyLogBcc) { foreach ($address in @($BkNotifyLogBcc)) { $MailMessage.Bcc.Add($address) } }
-
-			$MailMessage.Subject = $BkMailSubject
-			$MailMessage.Body = ($MyContext.Logger.ToString())
-			
-			# Do we have to include extra informations ?
-			If ($BkNotifyExtra -ne "none") {
-
-				foreach ($file in Get-NotificationExtras) {
-					If($BkNotifyExtra -ieq "attach") {
-						$MailAttachment = New-Object System.Net.Mail.Attachment($file.FullName)
-						$MailAttachment.Name = $file.Name
-						$MailMessage.Attachments.Add($MailAttachment)
-					} Else {
-						$MailMessage.Body += ("`n`n{0}`n" -f $file.Name)
-						$MailMessage.Body += (Get-Content $file)
-					}
-				}
-				
+			foreach ($address in $content.To)  { $MailMessage.To.Add($address) }
+			foreach ($address in $content.Cc)  { $MailMessage.Cc.Add($address) }
+			foreach ($address in $content.Bcc) { $MailMessage.Bcc.Add($address) }
+			$MailMessage.Subject = $content.Subject
+			$MailMessage.Body = $content.Body
+			foreach ($path in $content.Attachments) {
+				$MailAttachment = New-Object System.Net.Mail.Attachment($path)
+				$MailAttachment.Name = [System.IO.Path]::GetFileName($path)
+				$MailMessage.Attachments.Add($MailAttachment)
 			}
-			
-			[void] $SmtpClient.Send($MailMessage) 
+
+			[void] $SmtpClient.Send($MailMessage)
 			Write-Host " Done`n " -ForeGroundColor Green
 			
 			} 
@@ -1950,34 +2030,15 @@ Test-Lock | ForEach-Object { $hasErrors = $True; Trace " Err : $_" }
 New-RootDir | ForEach-Object { $hasErrors = $True; Trace " Err : $_" }
 Test-CtrlCRequest | Out-Null
 
-If($hasErrors) { 
-	If(!($MyContext.Cancelling)) {
-		Invoke-PostAction
-		Send-Notification 
-	}
-	Clear-Script
-	Return 
+If($hasErrors) {
+	Complete-Run
+	Return
 }
 
 # --------------------------------------------------------------------------------
 # Execute pre Action if we have any (It may create directories we have to archive
 # --------------------------------------------------------------------------------
-If(Test-Variable "BkPreAction") {
-
-	Trace " Invoking Pre-Action (Output follows if any)"
-	Trace " ------------------------------------------------------------------------------"
-	Try {
-		& $BkPreAction 2>&1 | Set-Variable -Name preActionOutput -Scope Script
-		$preActionOutput | ForEach-Object {
-			Trace " $_"
-		}
-	} Catch {
-		Trace (" {0}" -f $_.Exception.Message)
-	}
-	Trace " ------------------------------------------------------------------------------"
-	Trace " "
-	
-}
+If(Test-Variable "BkPreAction") { Invoke-Action "Pre-Action" $BkPreAction }
 
 
 # Initalize Operations
@@ -2037,11 +2098,7 @@ $BkSelectionContents | Where-Object {$_ -imatch "^includesource=(.*)\|alias=(.*)
 # --------------------------------------------------------------------
 If(( $BkSources.Count -eq 0 )) {
 	Trace "   There are no selectable sources to backup. Quitting"
-	If(!($MyContext.Cancelling)) { 
-		Invoke-PostAction
-		Send-Notification 
-	}
-	Clear-Script
+	Complete-Run
 	Return
 }  Else {
 	Trace " "
@@ -2173,13 +2230,8 @@ If(($Counters.FilesSelected -lt 1) -or (Test-CtrlCRequest)) {
 	Trace " - User Cancel Request (CTRL+C)"
 	Trace " "
 
-	If(!($MyContext.Cancelling)) { 
-		Invoke-PostAction
-		Send-Notification 
-	}
-	Clear-Script
-	Return 
-	
+	Complete-Run
+	Return
 }
 
 	# Adjust at least 1byte selected (in case all files are zero length)
@@ -2268,21 +2320,9 @@ If(($Counters.FilesSelected -lt 1) -or (Test-CtrlCRequest)) {
 		
 		# Create Process
 		If(Test-Variable "Bk7ZipRetc") { Remove-Variable -Name Bk7ZipRetc }
-		$oProcessStartInfo = New-Object -TypeName System.Diagnostics.ProcessStartInfo
-		$oProcessStartInfo.FileName = $Bk7ZipBin
-		$oProcessStartInfo.WorkingDirectory = $BkRootDir
-		$oProcessStartInfo.RedirectStandardError = $true
-		$oProcessStartInfo.RedirectStandardOutput = $true
-		$oProcessStartInfo.UseShellExecute = $false
-		$oProcessStartInfo.CreateNoWindow = $true
-		$oProcessStartInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-		$oProcessStartInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8
-		$oProcessStartInfo.RedirectStandardInput = (Test-Variable "BkArchivePassword")
-		$oProcessStartInfo.Arguments = ($Bk7ZipArgs -join " ")
 		Write-Verbose "7z arguments:  $($Bk7ZipArgs -join ' ')"
-		$oProcess = New-Object -Typename System.Diagnostics.Process
-		$oProcess.StartInfo = $oProcessStartInfo
-		
+		$oProcess = New-SevenZipProcess ($Bk7ZipArgs -join " ") -RedirectErrors
+
 		# Initialize StreamWriter for Compress Details
 		$SWriters.CompressDetail = New-Object -TypeName System.IO.StreamWriter($BkCompressDetail, [String]$True, [System.Text.Encoding]::UTF8)
 		$SWriters.CompressDetail.AutoFlush = $True
@@ -2310,18 +2350,8 @@ public class SevenZipOutput {
 		# Start the clocks
 		$MyContext.CompressionStart = Get-Date
 		
-		# Start Process
-		# .NET Framework opens redirected input with Console.InputEncoding: in a UTF-8 console it puts
-		# a BOM before the password. Start with UTF-8 without BOM, then restore the console encoding
-		$savedInputEncoding = [Console]::InputEncoding
-		If(Test-Variable "BkArchivePassword") { Try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $False } Catch {} }
-		Try { [void]$oProcess.Start() } Finally { Try { [Console]::InputEncoding = $savedInputEncoding } Catch {} }
-		If(Test-Variable "BkArchivePassword") {
-			# 7-Zip asks the password twice (enter and verify), reading UTF-8 (-sccUTF-8)
-			$passwordBytes = (New-Object System.Text.UTF8Encoding $False).GetBytes($BkArchivePassword + "`r`n" + $BkArchivePassword + "`r`n")
-			$oProcess.StandardInput.BaseStream.Write($passwordBytes, 0, $passwordBytes.Length)
-			$oProcess.StandardInput.Close()
-		}
+		# Start Process. 7-Zip asks the password twice (enter and verify)
+		Start-SevenZip $oProcess 2
 		[void]$oProcess.BeginOutputReadLine()
 		[void]$oProcess.BeginErrorReadLine()		
 		
@@ -2329,10 +2359,7 @@ public class SevenZipOutput {
 		While (!($oProcess.HasExited)) {
 			Start-Sleep -Milliseconds 2500
 			$Status = "Waiting for archive ..."
-			$ArchiveSize = 0
-			# The listing has the size an open file had when the folder entry was last updated, often 0 while
-			# 7-Zip writes: Refresh reads the current size of each archive file (and volume)
-			Get-ChildItem -Path $BkDestPath -Filter ("{0}*" -f $BkArchiveName) | Where-Object { !$_.PSIscontainer } | ForEach-Object { $_.Refresh(); $ArchiveSize += $_.Length }
+			$ArchiveSize = Get-ArchiveSize
 			If ( $ArchiveSize -gt 0 ) { $Status = "Archive Size {0,0:n2} MByte. so far ..." -f ($ArchiveSize / 1Mb) }
 			
 			# Log the 7-Zip error lines received so far, in order
@@ -2399,8 +2426,7 @@ public class SevenZipOutput {
 		}
 		
 		# Check overall size of archive (including volumes if present)
-		$ArchiveSize = 0
-		Get-ChildItem -Path $BkDestPath -Filter ("{0}*" -f $BkArchiveName) | Where-Object { !$_.PSIscontainer } | ForEach-Object { $ArchiveSize += $_.Length }
+		$ArchiveSize = Get-ArchiveSize
 
 		# Check exit code by 7zip - If ErrorLevel is <2 then we assume backup
 		# process completed successfully
@@ -2476,7 +2502,7 @@ public class SevenZipOutput {
 			$fatalMessages = @{
 				255 = @(" Cancelled ! User has stopped 7-Zip archiving process", " NO ARCHIVE HAS BEEN CREATED")
 				2   = @(" Cancelled ! 7-Zip reported a fatal error.", " NO VALID ARCHIVE HAS BEEN CREATED")
-				7   = @(" Cancelled ! 7-Zip has been invoked with a wrong command line.", (" {0}" -f $oProcessStartInfo.Arguments), " NO VALID ARCHIVE HAS BEEN CREATED")
+				7   = @(" Cancelled ! 7-Zip has been invoked with a wrong command line.", (" {0}" -f $oProcess.StartInfo.Arguments), " NO VALID ARCHIVE HAS BEEN CREATED")
 				8   = @(" Cancelled ! 7-Zip reports not enough memory.", " NO VALID ARCHIVE HAS BEEN CREATED")
 			}
 			If ($fatalMessages.ContainsKey([int]$Bk7ZipRetc)) {
@@ -2498,11 +2524,5 @@ public class SevenZipOutput {
 		Trace " Dry Run Selected ! No Archive creation."
 	}
 	
-# If is set a list of notification addresses then proceed with email here
-if (!(Test-CtrlCRequest)) { 
-	Invoke-PostAction
-	Send-Notification
-}
-
-# Clean Up 
-Clear-Script
+# Post action, notification email and clean up
+Complete-Run
