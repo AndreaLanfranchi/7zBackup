@@ -27,7 +27,7 @@ Set-Content -LiteralPath $selection -Value "includesource=$work\source|alias=Sou
 
 # Runs Assert-Variables with an otherwise valid setup; returns the prefix errors only
 Function Get-PrefixErrors ([string]$prefix) {
-	$script:MyContext       = [hashtable]::Synchronized(@{ PSVer = [int]$PSVersionTable.PSVersion.Major; WinVer = @("10"); Logger = (New-Object System.Text.StringBuilder) })
+	$script:MyContext       = [hashtable]::Synchronized(@{ PSVer = [int]$PSVersionTable.PSVersion.Major; Logger = (New-Object System.Text.StringBuilder) })
 	$script:BkType          = "full"
 	$script:BkSelection     = $selection
 	$script:BkDestPath      = "$work\dest"

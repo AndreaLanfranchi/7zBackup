@@ -3,6 +3,17 @@
 Changes to 7zBackup.ps1, newest version first. Categories: Bug, Feat (feature), Code, Speed, Sec (security),
 Ui (user interface). Some old entries use Minor or New, or have no category.
 
+## Unreleased
+
+- Bug: Remove-RootDir hid a failed link removal when the next link was removed: Return inside ForEach-Object left only the current link. It now stops at the first failure and reports it
+- Bug: With 7-Zip in both Program Files folders the 32-bit one was used, because the lookup kept the last hit. The native one is now used
+- Code: Trace-Warning logs a message and counts it as a warning (was the same two statements in 8 places)
+- Code: Test-Path-Writable is half as long, the lock file is written with Set-Content and its age is a date subtraction, and the 7-Zip lookup loops over the two Program Files folders. A missing Program Files (x86) folder (32-bit Windows) is skipped instead of raising an error
+- Code: Small one-liners: [Math]::Max for the selected bytes, the 7-Zip product version is read once and split once, no more "* 1" in the free space check
+- Code: Windows XP and 2003 are no longer supported (the oldest system is Windows Server 2008 SP2): New-Junction, Remove-Junction, the junction.exe search and the Windows version branches are gone. Links are always made with MKLINK
+- Code: --jbin and BkJunctionBin are obsolete: --jbin is accepted and ignored with a warning, a BkJunctionBin left in a vars file is ignored silently
+- Bug: The PowerShell version check could never fail (it asked for 2.0 while the script needs 3.0, and it ran after the first PowerShell 3 cmdlet). It now asks for 3.0 and says so
+
 ## 2.2.0-Stable (2026-10-04, Anlan)
 
 - Code: The sample selection file says a folder excluded by matchexcludepath is still listed, and that matchstoprecurse stops it

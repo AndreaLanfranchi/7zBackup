@@ -56,7 +56,7 @@ foreach ($withFailures in $True, $False) {
 	$totalBytes      = [int64]0
 	$Counters        = @{ Exclusions = 0; Warnings = 0; Exceptions = 0; Criticals = 0; FoldersDone = 1; FilesProcessed = $items.Count; FilesSelected = $items.Count; BytesSelected = [int64]1; BytesAvailable = [int64]0; PlaceHolders = @() }
 	$SWriters        = @{}
-	$MyContext       = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); StartDir = $env:TEMP; WinVer = @("10"); SelectionStart = (Get-Date); SevenZBinVersionInfo = @{ ProductVersion = $SevenZipVersion; Major = $SevenZipVersion.Split(".")[0] } })
+	$MyContext       = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); StartDir = $env:TEMP; SelectionStart = (Get-Date); SevenZBinVersionInfo = @{ ProductVersion = $SevenZipVersion; Major = $SevenZipVersion.Split(".")[0] } })
 	Set-Location -Path $BkRootDir
 
 	$lock = $null

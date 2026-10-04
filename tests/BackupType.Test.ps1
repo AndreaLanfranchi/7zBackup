@@ -27,7 +27,7 @@ Set-Content -LiteralPath $selection -Value "includesource=$work\source|alias=Sou
 # Runs Assert-Variables with an otherwise valid setup and the given --type, as set by the command line
 Function Get-Errors ([string]$type) {
 	Remove-Variable -Name BkClearBit -Scope Script
-	$script:MyContext       = [hashtable]::Synchronized(@{ PSVer = [int]$PSVersionTable.PSVersion.Major; WinVer = @("10"); Logger = (New-Object System.Text.StringBuilder) })
+	$script:MyContext       = [hashtable]::Synchronized(@{ PSVer = [int]$PSVersionTable.PSVersion.Major; Logger = (New-Object System.Text.StringBuilder) })
 	$script:BkType          = $type
 	$script:BkSelection     = $selection
 	$script:BkDestPath      = "$work\dest"

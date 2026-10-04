@@ -6,26 +6,17 @@
 # DESCRIPTION	: This script will help you automate the backup process
 #				  of your data using 7zip compression program.
 #				  When job is done a detailed report is produced.
-# OS			: Microsoft Windows 2000 	(NOT tested)
-#				  Microsoft Windows XP 		(tested)
-#				  Microsoft Windows 2003	(tested)
-#				  Microsoft Windows Vista	(tested)
-#				  Microsoft Windows 7    	(tested)
-#				  Microsoft Windows 2008	(tested)
-#				  Microsoft Windows 8    	(tested)
-#				  Microsoft Windows 8.1    	(tested)
-#				  Microsoft Windows 10    	(tested)
-#				  Microsoft Windows 2008   	(tested)
-#				  Microsoft Windows 2012   	(tested)
+# OS			: Microsoft Windows Server 2008 SP2 or Windows Vista SP2, or newer
+#				  (tested up to Windows 10 and Windows Server 2012)
 # REQUIREMENTS	: 7zip (http://www.7-Zip.org/download.html)
-#				  Junction v1.05 (http://technet.microsoft.com/en-us/sysinternals/bb896768.aspx)
+#				  Windows PowerShell 3.0 or newer
 #				  NTFS File System with support for junctions or 
 #                 symbolic links
 # --------------------------------------------------------------------
 # Give credit to the following contributors:
 # (please do not remove - add your name if you contribute)
 #
-#  * Andrea Lanfranchi - Anlan (http://www.anlan.com)
+#  * Andrea Lanfranchi - Anlan (https://github.com/AndreaLanfranchi)
 #
 # Version history: see CHANGELOG.md (newest first). For a new version, update
 # $version below and add its entry at the top of CHANGELOG.md
@@ -64,7 +55,6 @@ $MyContext.Name       = $MyInvocation.MyCommand.Name
 $MyContext.Definition = $MyInvocation.MyCommand.Definition
 $MyContext.Directory  = (Split-Path (Resolve-Path $MyInvocation.MyCommand.Definition) -Parent)
 $MyContext.StartDir   = (Get-Location -PSProvider FileSystem).ProviderPath
-$MyContext.WinVer     = (Get-CimInstance -ClassName Win32_OperatingSystem).Version.Split(".")
 $MyContext.PSVer      = [int]$PSVersionTable.PSVersion.Major
 $MyContext.Cancelling = $False
 $MyContext.DummyFile  = ".7zb"
@@ -84,7 +74,7 @@ $helpText = @"
  Usage : .\7zBackup.ps1 --type < full | incr | diff | copy | move >
                         --selection < full path to file name >
                         --destpath < destination path >
-                       [--jbin < path to Junction.exe > ]
+                       [--jbin < path to Junction.exe > ] OBSOLETE, IGNORED
 					   
                        -- Job specific switches --					  
                        [--dry]						
@@ -224,11 +214,9 @@ $helpText = @"
                If the argument is not provided the script will try to
                locate 7z.exe in program files folders
 			   
- --jbin        Specify full path to Junction.exe. 
-               If the argument is not provided the script will try to
-               locate Junction.exe in program files folders
-               This parameter is optional when the script is invoked
-               on Windows systems which support MKLINK.
+ --jbin        OBSOLETE (ignored, with a warning). It was the full path to
+               Junction.exe, needed only by Windows XP and 2003, which are
+               not supported anymore: Windows Vista and newer use MKLINK.
 			  
  --logfile     Where to log backup operations. If empty will be
                generated automatically.
@@ -349,7 +337,7 @@ Function Test-CtrlCRequest {
 		} 
 	}
 	$Host.UI.RawUI.FlushInputBuffer()
-	Write-Output ($MyContext.Cancelling)
+	$MyContext.Cancelling
 }
 
 
@@ -461,36 +449,6 @@ Function IsValidIPAddress {
 }	
 
 # -----------------------------------------------------------------------------
-# Function 		: New-Junction
-# -----------------------------------------------------------------------------
-# Description	: Creates a Junction by the means of SysInternals' Junction.exe
-# Parameters    : [string]jPath    - Full path to the name of the junction
-#				  [string]jTarget  - Full path to the target 
-# Returns       : $True / $False
-# -----------------------------------------------------------------------------
-Function New-Junction {
-	param(
-		[string]$jPath = $(throw "You must provide a path where to create the Junction"), 
-		[string]$jTarget = $(throw "You must provide a path to target")
-	)
-	
-	# Before we make any junction we have to test target
-	# path exist
-	If(Test-Path -Path $jTarget) {
-	
-		# Junction it (from alias)
-		Invoke-Expression (('& "{0}" /accepteula "{1}" "{2}"') -f $BkJunctionBin, $jPath, $jTarget) 
-		Start-Sleep -Milliseconds 10
-		
-		# Test is present
-		Return (Test-Path -Path $jPath)
-
-		
-	}
-	Write-Output $False
-}
-
-# -----------------------------------------------------------------------------
 # Function 		: Test-NetworkPath
 # -----------------------------------------------------------------------------
 # Description	: Tells whether a path is on the network: UNC path or network drive
@@ -506,7 +464,7 @@ Function Test-NetworkPath ([string]$path) {
 # Function 		: New-SymLink
 # -----------------------------------------------------------------------------
 # Description	: Links a path to Target: a junction for a local target, a symbolic
-#				  link for a network target (only available for WinVer 6+)
+#				  link for a network target
 # Parameters    : [string]jPath    - Full path to the name of the junction
 #				  [string]jTarget  - Full path to the target 
 # Returns       : $True / $False
@@ -549,11 +507,7 @@ Function New-RootDir {
 	If(!$?) { 
 		Return ("Unable to create directory {0}. Check permissions." -f $BkRootDir)
 	} Else {
-		If([int]$MyContext.WinVer[0] -lt 6 ) {
-			New-Item (Join-Path -Path $BkRootDir -ChildPath "__README__PLEASE__README__.txt") -type File -value "This directory contains Junctions.`nDO NOT DELETE THIS DIRECTORY AND IT'S CONTENTS USING WINDOWS EXPLORER.`nUse Junction -d to delete junctions and then safely delete the directory." | Out-Null
-		} Else {
-			New-Item (Join-Path -Path $BkRootDir -ChildPath "__README__PLEASE__README__.txt") -type File -value "This directory contains junctions or symbolic links.`nDO NOT DELETE THIS DIRECTORY AND IT'S CONTENTS USING WINDOWS EXPLORER.`nUse the RD command to delete the links and then safely delete the directory, use cmd /c rmdir <thesymlink'sname> in case of using Powershell." | Out-Null
-		}
+		New-Item (Join-Path -Path $BkRootDir -ChildPath "__README__PLEASE__README__.txt") -type File -value "This directory contains junctions or symbolic links.`nDO NOT DELETE THIS DIRECTORY AND IT'S CONTENTS USING WINDOWS EXPLORER.`nUse the RD command to delete the links and then safely delete the directory, use cmd /c rmdir <thesymlink'sname> in case of using Powershell." | Out-Null
 		If(!$?) {
 			Return ("Can't write into {0}. Check permissions." -f $BkRootDir)
 		}
@@ -619,8 +573,7 @@ Function PostArchiving {
 	}
 	$oListProcess.WaitForExit()
 	If($oListProcess.ExitCode -ne 0) {
-		Trace (" WARNING : Could not list archive {0}. Post archive operations skipped`n" -f $archiveToList)
-		$Counters.Warnings++
+		Trace-Warning (" WARNING : Could not list archive {0}. Post archive operations skipped`n" -f $archiveToList)
 		Return
 	}
 	Set-Variable -Name "BkCompressDetailItems" -Value $archivedItems -Scope Script
@@ -634,7 +587,7 @@ Function PostArchiving {
 	If($notArchived.Count -gt 0) {
 		Trace " Selected items not in archive"
 		Trace " ------------------------------------------------------------------------------"
-		$notArchived | ForEach-Object { Trace " NOT ARCHIVED : $_"; $Counters.Warnings++ }
+		$notArchived | ForEach-Object { Trace-Warning " NOT ARCHIVED : $_" }
 		Trace " "
 	}
 	If(($BkType -ne "move") -And !($BkClearBit)) { Return }
@@ -681,7 +634,7 @@ Function PostArchiving {
 					[System.IO.File]::SetAttributes($path, $attributes -bXOR $archiveAttr)
 				}
 			} Catch {
-				Trace (" FAILED : {0}" -f $entry); $Counters.Warnings++
+				Trace-Warning (" FAILED : {0}" -f $entry)
 			}
 		} Else {
 			Write-Host (" ? " + $path)
@@ -966,36 +919,12 @@ Function ProcessFolder ($thisFolder) {
 }
 
 # -----------------------------------------------------------------------------
-# Function 		: Remove-Junction
-# -----------------------------------------------------------------------------
-# Description	: Removes a Junction by the means of SysInternals' Junction.exe
-# Parameters    : [string]jPath    - Full path to the name of the junction
-# Returns       : $True / $False
-# -----------------------------------------------------------------------------
-Function Remove-Junction  {
-	param([string]$jPath = $(throw "You must provide a path to the junction")) 
-
-	# Check Junction Path exist otherwise we have nothing to unJunction
-	If((Test-Path $jPath)) {
-
-		# UnJunction it
-		Invoke-Expression (('& "{0}" /accepteula -d "{1}"') -f $BkJunctionBin, $jPath) 
-		Start-Sleep -Milliseconds 10
-		
-		# Test is no more present !!
-		Return ((Test-Path -Path $jPath) -eq $False)
-		
-	}
-	Write-Output $False
-}
-
-# -----------------------------------------------------------------------------
 # Function 		: Remove-RootDir
 # -----------------------------------------------------------------------------
 # Description	: This function safely removes the Root Directory generated for
 #				  the purpouse of holding junction points to included sources.
 #				  Before it deletes the directory itself, each reparse point
-#				  is removed using Junction with the -d switch.
+#				  is removed with RD (Remove-SymLink).
 # Parameters    : [string]rootPath - The name of the directory to remove
 # Returns       : $True / $False
 # -----------------------------------------------------------------------------
@@ -1006,14 +935,10 @@ Function Remove-RootDir {
 	
 	If (Test-Path -Path $rootPath -PathType Container) {
 		Set-Variable -Name "junctionsRemoved" -Value $True -Scope Private | Out-Null
-		Get-ChildItem -Path $rootPath | Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } | ForEach-Object {
-			If([int]$MyContext.WinVer[0] -lt 6) {
-				$junctionsRemoved = Remove-Junction $_.FullName
-				If(!$junctionsRemoved) {Return}
-			} Else {
-				$junctionsRemoved = Remove-SymLink $_.FullName
-				If(!$junctionsRemoved) {Return}
-			}
+		# foreach, not ForEach-Object: there Return leaves only the current link and the next success hides the failure
+		foreach ($link in @(Get-ChildItem -Path $rootPath | Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint })) {
+			$junctionsRemoved = Remove-SymLink $link.FullName
+			If(!$junctionsRemoved) { break }
 		}
 		If($junctionsRemoved -And (@(Get-ChildItem -Path $rootPath | Where-Object {$_.PsIsContainer}).Count -eq 0) ) {
 			Remove-Item -Path $rootPath -Recurse -Force | Out-Null
@@ -1276,7 +1201,7 @@ Function Test-Lock {
 			}
 		} Else {
 		
-			If ((New-TimeSpan -End (Get-Date) -Start (Get-Item -LiteralPath $BkLockFile).LastWriteTime).TotalHours -gt 72) { 
+			If (((Get-Date) - (Get-Item -LiteralPath $BkLockFile).LastWriteTime).TotalHours -gt 72) { 
 			
 				Remove-Item -LiteralPath $BkLockFile | Out-Null  
 				If(!($?)) {
@@ -1298,8 +1223,8 @@ Function Test-Lock {
 	} 
 	
 	# Drop a new lock file in place
-	New-Item -Path $BkLockFile -ItemType File -Force | Out-Null
-	If ($?) {("PID={0}`nStart={1}`nRoot={2}" -f [System.Diagnostics.Process]::GetCurrentProcess().Id, [System.Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().Ticks, $BkRootDir) | Out-File $BkLockFile -encoding ASCII -append }
+	$me = [System.Diagnostics.Process]::GetCurrentProcess()
+	("PID={0}`nStart={1}`nRoot={2}" -f $me.Id, $me.StartTime.ToUniversalTime().Ticks, $BkRootDir) | Set-Content -LiteralPath $BkLockFile -Encoding Ascii
 	If(!($?)) {
 		Return ("Could not write lock file`n Quitting ...`n ")
 	}
@@ -1318,27 +1243,18 @@ Function Test-Path-Writable {
 	param([string]$testPath = $(throw "You must provide a path to test"),
 	      [string]$testType = $(throw "You must provide a test item type")) 
 
-	# Check Path Exist
-	If(Test-Path -Path $testPath -PathType Container) {
-	
-		# Generate a dummy file name with a Guid
-		$dummyItem = Join-Path $testPath ( [System.Guid]::NewGuid().ToString() )
-		
-		# Try to create new file in tested path
-		if (( $testType -ieq "file" )) {
-			New-Item $dummyItem -type File -force -value "This is only a test file. You can delete it safely." | Out-Null
-		} Else {
-			New-Item $dummyItem -type Directory -force | Out-Null
-		}
-		If ($?) {
-			Remove-Item $dummyItem | Out-Null
-			Return $?
-		} Else { 
-			Return $?
-		}
-		
+	If(!(Test-Path -Path $testPath -PathType Container)) { Return $False }
+
+	# Create a dummy item named with a Guid in the tested path, then remove it
+	$dummyItem = Join-Path $testPath ( [System.Guid]::NewGuid().ToString() )
+	If($testType -ieq "file") {
+		New-Item $dummyItem -type File -force -value "This is only a test file. You can delete it safely." | Out-Null
+	} Else {
+		New-Item $dummyItem -type Directory -force | Out-Null
 	}
-	Write-Output $False
+	If(!$?) { Return $False }
+	Remove-Item $dummyItem | Out-Null
+	Return $?
 }
 
 # -----------------------------------------------------------------------------
@@ -1435,7 +1351,7 @@ Function Resolve-IntegerVariable ([string]$name, [int64]$minimum, [int64]$maximu
 # -----------------------------------------------------------------------------
 Function Resolve-AddressList ([string]$name, [string]$label) {
 	$addresses = @((Get-Variable -Name $name -Scope Script -ErrorAction SilentlyContinue).Value)
-	$addresses | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid {0} address {1} ignored" -f $label, $_); $Counters.Warnings++ }
+	$addresses | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace-Warning (" Warning : Invalid {0} address {1} ignored" -f $label, $_) }
 	$valid = @($addresses | Where-Object {IsValidEmailAddress $_})
 	If($valid.Count -gt 0) { Set-Variable -Name $name -Value $valid -Scope Script } Else { Remove-Variable -Name $name -Scope Script -ErrorAction SilentlyContinue }
 }
@@ -1461,6 +1377,19 @@ Function Trace ($message) {
 # -----------------------------------------------------------------------------
 Function Format-Elapsed ([timespan]$span) {
 	"{0,0:n0} d : {1,0:n0} h : {2,0:n0} m : {3,0:n3} s" -f $span.Days, $span.Hours, $span.Minutes, ($span.Seconds + $span.Milliseconds / 1000)
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Trace-Warning
+# -----------------------------------------------------------------------------
+# Description	: Outputs a message to console and to logfile and counts it as
+#				  a warning of the run
+# Parameters    : [string]$message  - The message to output
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Trace-Warning ($message) {
+	Trace $message
+	$Counters.Warnings++
 }
 
 # -----------------------------------------------------------------------------
@@ -1562,6 +1491,20 @@ Function Read-MatchRule ([string[]]$lines, [string]$name, [string]$title, [strin
 }
 
 # -----------------------------------------------------------------------------
+# Function 		: Trace-ObsoleteArguments
+# -----------------------------------------------------------------------------
+# Description	: Warns about command line arguments which are accepted for
+#				  old command lines but have no effect anymore
+# Parameters    : -
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Trace-ObsoleteArguments {
+	If($BkArguments -contains "--jbin") {
+		Trace-Warning " Warning : --jbin is obsolete and ignored: Windows XP and 2003 are not supported anymore"
+	}
+}
+
+# -----------------------------------------------------------------------------
 # Function 		: Assert-Arguments
 # -----------------------------------------------------------------------------
 # Description	: This function is used to check input arguments
@@ -1607,7 +1550,7 @@ Function Assert-Arguments {
 		'--mailkitpath'      = 'BkMailKitPath'
 		'--7zbin'            = 'Bk7ZipBin'
 		'--7zipbin'          = 'Bk7ZipBin'
-		'--jbin'             = 'BkJunctionBin'
+		'--jbin'             = $null
 		'--pre'              = 'BkPreAction'
 		'--post'             = 'BkPostAction'
 	}
@@ -1645,9 +1588,9 @@ Function Assert-Variables {
 	# --------------------------------------------------------------------------------------------------------------------------
 	# Environment - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
-	# Check we're on Powershell 3.x. If not early exit.
-	If($MyContext.PSVer -lt 2) {
-		Return ("You must be on PowerShell 2.x (or better) to run this script. You're on {0}" -f $MyContext.PSVer)
+	# Check we're on Powershell 3.0 or better. If not early exit.
+	If($MyContext.PSVer -lt 3) {
+		Return ("You must be on PowerShell 3.0 (or better) to run this script. You're on {0}" -f $MyContext.PSVer)
 	}
 
 	# --------------------------------------------------------------------------------------------------------------------------
@@ -1843,7 +1786,7 @@ Function Assert-Variables {
 		# To Email Address(es) - Checks
 		# ----------------------------------------------------------------------------------------------------------------------
 		Resolve-AddressList "BkNotifyLog" "--notify"
-		If(!(Test-Variable "BkNotifyLog")) { Trace " Warning : No valid --notify address left: no notification will be sent"; $Counters.Warnings++ }
+		If(!(Test-Variable "BkNotifyLog")) { Trace-Warning " Warning : No valid --notify address left: no notification will be sent" }
 
 		# ----------------------------------------------------------------------------------------------------------------------
 		# To CC Email Address(es) - Checks
@@ -1916,7 +1859,7 @@ Function Assert-Variables {
 		If(Test-Variable "BkMailKitPath") {
 			$mailKitError = Import-MailKit $BkMailKitPath
 			If($mailKitError) {
-				Trace (" Warning : MailKit not loaded ({0}), using SmtpClient" -f $mailKitError); $Counters.Warnings++
+				Trace-Warning (" Warning : MailKit not loaded ({0}), using SmtpClient" -f $mailKitError)
 				Remove-Variable -Name BkMailKitPath -Scope Script
 			}
 		}
@@ -1927,8 +1870,11 @@ Function Assert-Variables {
 	# 7z.exe binary - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
 	If(!(Test-Variable "Bk7ZipBin")) { 
-		If(Test-Path -Path (Join-Path -Path ${Env:ProgramFiles} -ChildPath "\7-Zip\7z.exe") -PathType Leaf) { Set-Variable -Name Bk7ZipBin -value (Join-Path -Path ${Env:ProgramFiles} -ChildPath "\7-Zip\7z.exe") -scope Script}
-		If(Test-Path -Path (Join-Path -Path ${Env:ProgramFiles(x86)} -ChildPath "\7-Zip\7z.exe") -PathType Leaf) { Set-Variable -Name Bk7ZipBin -value (Join-Path -Path ${Env:ProgramFiles(x86)} -ChildPath "\7-Zip\7z.exe") -scope Script}
+		foreach ($programFiles in ${Env:ProgramFiles}, ${Env:ProgramFiles(x86)}) {
+			If(!$programFiles) { continue }
+			$candidate = Join-Path -Path $programFiles -ChildPath "\7-Zip\7z.exe"
+			If(Test-Path -Path $candidate -PathType Leaf) { Set-Variable -Name Bk7ZipBin -Value $candidate -Scope Script; break }
+		}
 	}
 	If(
 		!(Test-Variable "Bk7ZipBin") -Or
@@ -1939,34 +1885,12 @@ Function Assert-Variables {
 	{
 		$MyContext.SevenZBinVersionInfo = @{}
 		Get-Item -Path $Bk7ZipBin | ForEach-Object {
-			$MyContext.SevenZBinVersionInfo.ProductVersion = $_.VersionInfo.ProductVersion.ToString()
-			$MyContext.SevenZBinVersionInfo.Major = $_.VersionInfo.ProductVersion.ToString().Split(".")[0]
-			$MyContext.SevenZBinVersionInfo.Minor = $_.VersionInfo.ProductVersion.ToString().Split(".")[1]
+			$productVersion = $_.VersionInfo.ProductVersion.ToString()
+			$MyContext.SevenZBinVersionInfo.ProductVersion = $productVersion
+			$MyContext.SevenZBinVersionInfo.Major, $MyContext.SevenZBinVersionInfo.Minor = $productVersion.Split(".")[0..1]
 		}
 	}
 
-	# --------------------------------------------------------------------------------------------------------------------------
-	# Junction.exe binary - Checks
-	# --------------------------------------------------------------------------------------------------------------------------
-	# On Vista / 7 / 2008 native MKLINK is used instead
-	If([int]$MyContext.WinVer[0] -lt 6) {
-
-		If(!(Test-Variable "BkJunctionBin")) { 
-			${Env:ProgramFiles}, ${Env:ProgramFiles(x86)} | ForEach-Object {
-				If(Test-Path -Path (Join-Path -Path $_ -ChildPath "\SysInternalsSuite\junction.exe") -PathType Leaf) {
-				Set-Variable -Name BkJunctionBin -value  (Join-Path -Path $_ -ChildPath "\SysInternalsSuite\junction.exe") -scope Script
-				}
-			}
-		}
-	
-		If(
-			!(Test-Variable "BkJunctionBin") -Or
-			($BkJunctionBin -match "^\s*$") -Or
-			!(Test-Path -Path $BkJunctionBin -pathType Leaf)
-		) 
-			{ Write-Output "Missing or invalid --jbin argument" }
-	}
-	
 }
 
 # ====================================================================
@@ -2023,6 +1947,7 @@ Set-Variable -Name hasErrors -Value $False -Scope Script
 Set-Variable -Name BkArguments -Value $args -Scope Script
 
 Assert-Arguments | ForEach-Object { $hasErrors = $True; Trace " Err : $_" }
+Trace-ObsoleteArguments
 Assert-Variables | ForEach-Object { $hasErrors = $True; Trace " Err : $_" }
 If($hasErrors) { Trace ("`n Try .\{0} --help `n" -f $MyInvocation.MyCommand.Name); $Counters.Criticals = 1; Send-Notification; Return }
 
@@ -2113,13 +2038,8 @@ $BkSelectionContents | Where-Object {$_ -imatch "^includesource=(.*)\|alias=(.*)
 			Trace "   Alias $alias already in use. Skipping selection of $target"
 		} Else {
 			
-			If([int]$MyContext.WinVer[0] -lt 6 ) { 
-				# Create the new junction for Windows previous to vista
-				If(!(New-Junction (Join-Path -Path $BkRootDir -ChildPath $alias) $target)) { Trace "   Failed to create Junction [$alias] to [$target]"} Else { $BkSources.Add($alias, $target) }
-			} Else {
-				# Create the link for Windows Vista or newer: a junction for a local target
-				If(!(New-SymLink (Join-Path -Path $BkRootDir -ChildPath $alias) $target)) { Trace "   Failed to create link [$alias] to [$target]"} Else { $BkSources.Add($alias, $target) }
-			}
+			# Create the link: a junction for a local target, a symbolic link for a network one
+			If(!(New-SymLink (Join-Path -Path $BkRootDir -ChildPath $alias) $target)) { Trace "   Failed to create link [$alias] to [$target]"} Else { $BkSources.Add($alias, $target) }
 			
 		}
 		
@@ -2284,7 +2204,7 @@ If(($Counters.FilesSelected -lt 1) -or (Test-CtrlCRequest)) {
 
 	# Adjust at least 1byte selected (in case all files are zero length)
 	# This will prevent division by zero errors
-	If(($Counters.BytesSelected -lt 1)) { $Counters.BytesSelected = 1 }
+	$Counters.BytesSelected = [Math]::Max($Counters.BytesSelected, 1)
 
 	
 	# Maybe there has been some exceptions during the selection progress. 
@@ -2294,7 +2214,7 @@ If(($Counters.FilesSelected -lt 1) -or (Test-CtrlCRequest)) {
 		Trace "`n Exceptions during selection process"
 		Trace " ------------------------------------------------------------------------------"
 		$selectionExceptions | ForEach-Object {
-		Trace (" {0} " -f $_); $Counters.Warnings++
+		Trace-Warning (" {0} " -f $_)
 		}
 	}
 	
@@ -2327,7 +2247,7 @@ If(($Counters.FilesSelected -lt 1) -or (Test-CtrlCRequest)) {
 
 		# Check we have enough disk space available on target path
 		$Counters.BytesAvailable = ([int64](GetDestPathFreeSpace -target $BkDestPath))
-		If($Counters.BytesAvailable -lt ($totalBytes * 1)) {
+		If($Counters.BytesAvailable -lt $totalBytes) {
 			Trace (" Warning !! ... you're low on space on target ")
 			Trace (" {0,-31} {1,17:n2}" -f " Required Max..............", ($totalBytes/1MB))
 			Trace (" {0,-31} {1,17:n2}" -f " Available  ...............", ($Counters.BytesAvailable/1MB))
@@ -2493,7 +2413,7 @@ public class SevenZipOutput {
 			Trace " 7-Zip completed with warnings "
 			Trace " ------------------------------------------------------------------------------"
 			$relevantMessages | ForEach-Object {
-				Trace " $_"; $Counters.Warnings++
+				Trace-Warning " $_"
 			}
 			Trace " "
 		}

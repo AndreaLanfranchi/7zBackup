@@ -39,9 +39,7 @@
 #       includesource=\\someserver\somesharedfolder|alias=Remote (see note !!)
 #
 #       NOTE ! From version 1.8.0 of 7zbackup you can also specify
-#       UNC paths as sources for your backup but this is possible
-#       only if the script is ran on a Windows Vista / 7 / 2008
-#       computer.
+#       UNC paths as sources for your backup.
 #
 #       Warning !!
 #       Do not specify sources that are already below a previously
