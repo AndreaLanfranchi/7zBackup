@@ -94,6 +94,18 @@ $out = @(Test-Lock)
 Assert ($out.Count -gt 0)                                     "run refuses to start (lock can not be proven stale)"
 Assert ((Get-Content -LiteralPath $BkLockFile) -contains "PID=4") "lock file is untouched"
 
+Write-Host "`n Case: lock without a process id (written by an old version)"
+Reset-Context
+Set-Content -LiteralPath $BkLockFile -Value "locked" -Encoding Ascii
+$out = @(Test-Lock)
+Assert ($out.Count -gt 0)                                      "a recent one makes the run refuse to start"
+Assert ((Get-Content -LiteralPath $BkLockFile) -contains "locked") "and stays untouched"
+(Get-Item -LiteralPath $BkLockFile).LastWriteTime = (Get-Date).AddHours(-73)
+Reset-Context
+$out = @(Test-Lock)
+Assert ($out.Count -eq 0) "one older than 72 hours is stale: run proceeds"
+Assert (Test-OwnLock)     "lock file is replaced by this run's lock"
+
 Stop-Process -Id $child.Id -Force
 If(Test-Path -LiteralPath "$staleRoot\Alias") { cmd /c "rd `"$staleRoot\Alias`"" }
 Remove-Item -LiteralPath $work -Recurse -Force

@@ -337,7 +337,7 @@ Function Test-CtrlCRequest {
 		} 
 	}
 	$Host.UI.RawUI.FlushInputBuffer()
-	Write-Output ($MyContext.Cancelling)
+	$MyContext.Cancelling
 }
 
 
@@ -573,8 +573,7 @@ Function PostArchiving {
 	}
 	$oListProcess.WaitForExit()
 	If($oListProcess.ExitCode -ne 0) {
-		Trace (" WARNING : Could not list archive {0}. Post archive operations skipped`n" -f $archiveToList)
-		$Counters.Warnings++
+		Trace-Warning (" WARNING : Could not list archive {0}. Post archive operations skipped`n" -f $archiveToList)
 		Return
 	}
 	Set-Variable -Name "BkCompressDetailItems" -Value $archivedItems -Scope Script
@@ -588,7 +587,7 @@ Function PostArchiving {
 	If($notArchived.Count -gt 0) {
 		Trace " Selected items not in archive"
 		Trace " ------------------------------------------------------------------------------"
-		$notArchived | ForEach-Object { Trace " NOT ARCHIVED : $_"; $Counters.Warnings++ }
+		$notArchived | ForEach-Object { Trace-Warning " NOT ARCHIVED : $_" }
 		Trace " "
 	}
 	If(($BkType -ne "move") -And !($BkClearBit)) { Return }
@@ -635,7 +634,7 @@ Function PostArchiving {
 					[System.IO.File]::SetAttributes($path, $attributes -bXOR $archiveAttr)
 				}
 			} Catch {
-				Trace (" FAILED : {0}" -f $entry); $Counters.Warnings++
+				Trace-Warning (" FAILED : {0}" -f $entry)
 			}
 		} Else {
 			Write-Host (" ? " + $path)
@@ -1201,7 +1200,7 @@ Function Test-Lock {
 			}
 		} Else {
 		
-			If ((New-TimeSpan -End (Get-Date) -Start (Get-Item -LiteralPath $BkLockFile).LastWriteTime).TotalHours -gt 72) { 
+			If (((Get-Date) - (Get-Item -LiteralPath $BkLockFile).LastWriteTime).TotalHours -gt 72) { 
 			
 				Remove-Item -LiteralPath $BkLockFile | Out-Null  
 				If(!($?)) {
@@ -1223,8 +1222,8 @@ Function Test-Lock {
 	} 
 	
 	# Drop a new lock file in place
-	New-Item -Path $BkLockFile -ItemType File -Force | Out-Null
-	If ($?) {("PID={0}`nStart={1}`nRoot={2}" -f [System.Diagnostics.Process]::GetCurrentProcess().Id, [System.Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().Ticks, $BkRootDir) | Out-File $BkLockFile -encoding ASCII -append }
+	$me = [System.Diagnostics.Process]::GetCurrentProcess()
+	("PID={0}`nStart={1}`nRoot={2}" -f $me.Id, $me.StartTime.ToUniversalTime().Ticks, $BkRootDir) | Set-Content -LiteralPath $BkLockFile -Encoding Ascii
 	If(!($?)) {
 		Return ("Could not write lock file`n Quitting ...`n ")
 	}
@@ -1243,27 +1242,18 @@ Function Test-Path-Writable {
 	param([string]$testPath = $(throw "You must provide a path to test"),
 	      [string]$testType = $(throw "You must provide a test item type")) 
 
-	# Check Path Exist
-	If(Test-Path -Path $testPath -PathType Container) {
-	
-		# Generate a dummy file name with a Guid
-		$dummyItem = Join-Path $testPath ( [System.Guid]::NewGuid().ToString() )
-		
-		# Try to create new file in tested path
-		if (( $testType -ieq "file" )) {
-			New-Item $dummyItem -type File -force -value "This is only a test file. You can delete it safely." | Out-Null
-		} Else {
-			New-Item $dummyItem -type Directory -force | Out-Null
-		}
-		If ($?) {
-			Remove-Item $dummyItem | Out-Null
-			Return $?
-		} Else { 
-			Return $?
-		}
-		
+	If(!(Test-Path -Path $testPath -PathType Container)) { Return $False }
+
+	# Create a dummy item named with a Guid in the tested path, then remove it
+	$dummyItem = Join-Path $testPath ( [System.Guid]::NewGuid().ToString() )
+	If($testType -ieq "file") {
+		New-Item $dummyItem -type File -force -value "This is only a test file. You can delete it safely." | Out-Null
+	} Else {
+		New-Item $dummyItem -type Directory -force | Out-Null
 	}
-	Write-Output $False
+	If(!$?) { Return $False }
+	Remove-Item $dummyItem | Out-Null
+	Return $?
 }
 
 # -----------------------------------------------------------------------------
@@ -1360,7 +1350,7 @@ Function Resolve-IntegerVariable ([string]$name, [int64]$minimum, [int64]$maximu
 # -----------------------------------------------------------------------------
 Function Resolve-AddressList ([string]$name, [string]$label) {
 	$addresses = @((Get-Variable -Name $name -Scope Script -ErrorAction SilentlyContinue).Value)
-	$addresses | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace (" Warning : Invalid {0} address {1} ignored" -f $label, $_); $Counters.Warnings++ }
+	$addresses | Where-Object {$_ -and !(IsValidEmailAddress $_)} | ForEach-Object { Trace-Warning (" Warning : Invalid {0} address {1} ignored" -f $label, $_) }
 	$valid = @($addresses | Where-Object {IsValidEmailAddress $_})
 	If($valid.Count -gt 0) { Set-Variable -Name $name -Value $valid -Scope Script } Else { Remove-Variable -Name $name -Scope Script -ErrorAction SilentlyContinue }
 }
@@ -1386,6 +1376,19 @@ Function Trace ($message) {
 # -----------------------------------------------------------------------------
 Function Format-Elapsed ([timespan]$span) {
 	"{0,0:n0} d : {1,0:n0} h : {2,0:n0} m : {3,0:n3} s" -f $span.Days, $span.Hours, $span.Minutes, ($span.Seconds + $span.Milliseconds / 1000)
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Trace-Warning
+# -----------------------------------------------------------------------------
+# Description	: Outputs a message to console and to logfile and counts it as
+#				  a warning of the run
+# Parameters    : [string]$message  - The message to output
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Trace-Warning ($message) {
+	Trace $message
+	$Counters.Warnings++
 }
 
 # -----------------------------------------------------------------------------
@@ -1496,8 +1499,7 @@ Function Read-MatchRule ([string[]]$lines, [string]$name, [string]$title, [strin
 # -----------------------------------------------------------------------------
 Function Trace-ObsoleteArguments {
 	If($BkArguments -contains "--jbin") {
-		Trace " Warning : --jbin is obsolete and ignored: Windows XP and 2003 are not supported anymore"
-		$Counters.Warnings++
+		Trace-Warning " Warning : --jbin is obsolete and ignored: Windows XP and 2003 are not supported anymore"
 	}
 }
 
@@ -1783,7 +1785,7 @@ Function Assert-Variables {
 		# To Email Address(es) - Checks
 		# ----------------------------------------------------------------------------------------------------------------------
 		Resolve-AddressList "BkNotifyLog" "--notify"
-		If(!(Test-Variable "BkNotifyLog")) { Trace " Warning : No valid --notify address left: no notification will be sent"; $Counters.Warnings++ }
+		If(!(Test-Variable "BkNotifyLog")) { Trace-Warning " Warning : No valid --notify address left: no notification will be sent" }
 
 		# ----------------------------------------------------------------------------------------------------------------------
 		# To CC Email Address(es) - Checks
@@ -1856,7 +1858,7 @@ Function Assert-Variables {
 		If(Test-Variable "BkMailKitPath") {
 			$mailKitError = Import-MailKit $BkMailKitPath
 			If($mailKitError) {
-				Trace (" Warning : MailKit not loaded ({0}), using SmtpClient" -f $mailKitError); $Counters.Warnings++
+				Trace-Warning (" Warning : MailKit not loaded ({0}), using SmtpClient" -f $mailKitError)
 				Remove-Variable -Name BkMailKitPath -Scope Script
 			}
 		}
@@ -1867,8 +1869,11 @@ Function Assert-Variables {
 	# 7z.exe binary - Checks
 	# --------------------------------------------------------------------------------------------------------------------------
 	If(!(Test-Variable "Bk7ZipBin")) { 
-		If(Test-Path -Path (Join-Path -Path ${Env:ProgramFiles} -ChildPath "\7-Zip\7z.exe") -PathType Leaf) { Set-Variable -Name Bk7ZipBin -value (Join-Path -Path ${Env:ProgramFiles} -ChildPath "\7-Zip\7z.exe") -scope Script}
-		If(Test-Path -Path (Join-Path -Path ${Env:ProgramFiles(x86)} -ChildPath "\7-Zip\7z.exe") -PathType Leaf) { Set-Variable -Name Bk7ZipBin -value (Join-Path -Path ${Env:ProgramFiles(x86)} -ChildPath "\7-Zip\7z.exe") -scope Script}
+		foreach ($programFiles in ${Env:ProgramFiles}, ${Env:ProgramFiles(x86)}) {
+			If(!$programFiles) { continue }
+			$candidate = Join-Path -Path $programFiles -ChildPath "\7-Zip\7z.exe"
+			If(Test-Path -Path $candidate -PathType Leaf) { Set-Variable -Name Bk7ZipBin -Value $candidate -Scope Script }
+		}
 	}
 	If(
 		!(Test-Variable "Bk7ZipBin") -Or
@@ -1879,9 +1884,9 @@ Function Assert-Variables {
 	{
 		$MyContext.SevenZBinVersionInfo = @{}
 		Get-Item -Path $Bk7ZipBin | ForEach-Object {
-			$MyContext.SevenZBinVersionInfo.ProductVersion = $_.VersionInfo.ProductVersion.ToString()
-			$MyContext.SevenZBinVersionInfo.Major = $_.VersionInfo.ProductVersion.ToString().Split(".")[0]
-			$MyContext.SevenZBinVersionInfo.Minor = $_.VersionInfo.ProductVersion.ToString().Split(".")[1]
+			$productVersion = $_.VersionInfo.ProductVersion.ToString()
+			$MyContext.SevenZBinVersionInfo.ProductVersion = $productVersion
+			$MyContext.SevenZBinVersionInfo.Major, $MyContext.SevenZBinVersionInfo.Minor = $productVersion.Split(".")[0..1]
 		}
 	}
 
@@ -2198,7 +2203,7 @@ If(($Counters.FilesSelected -lt 1) -or (Test-CtrlCRequest)) {
 
 	# Adjust at least 1byte selected (in case all files are zero length)
 	# This will prevent division by zero errors
-	If(($Counters.BytesSelected -lt 1)) { $Counters.BytesSelected = 1 }
+	$Counters.BytesSelected = [Math]::Max($Counters.BytesSelected, 1)
 
 	
 	# Maybe there has been some exceptions during the selection progress. 
@@ -2208,7 +2213,7 @@ If(($Counters.FilesSelected -lt 1) -or (Test-CtrlCRequest)) {
 		Trace "`n Exceptions during selection process"
 		Trace " ------------------------------------------------------------------------------"
 		$selectionExceptions | ForEach-Object {
-		Trace (" {0} " -f $_); $Counters.Warnings++
+		Trace-Warning (" {0} " -f $_)
 		}
 	}
 	
@@ -2241,7 +2246,7 @@ If(($Counters.FilesSelected -lt 1) -or (Test-CtrlCRequest)) {
 
 		# Check we have enough disk space available on target path
 		$Counters.BytesAvailable = ([int64](GetDestPathFreeSpace -target $BkDestPath))
-		If($Counters.BytesAvailable -lt ($totalBytes * 1)) {
+		If($Counters.BytesAvailable -lt $totalBytes) {
 			Trace (" Warning !! ... you're low on space on target ")
 			Trace (" {0,-31} {1,17:n2}" -f " Required Max..............", ($totalBytes/1MB))
 			Trace (" {0,-31} {1,17:n2}" -f " Available  ...............", ($Counters.BytesAvailable/1MB))
@@ -2407,7 +2412,7 @@ public class SevenZipOutput {
 			Trace " 7-Zip completed with warnings "
 			Trace " ------------------------------------------------------------------------------"
 			$relevantMessages | ForEach-Object {
-				Trace " $_"; $Counters.Warnings++
+				Trace-Warning " $_"
 			}
 			Trace " "
 		}
