@@ -8,6 +8,9 @@ Ui (user interface). Some old entries use Minor or New, or have no category.
 - Code: Functions renamed to PowerShell Verb-Noun names: Test-EmailAddress, Test-HostName, Test-IPAddress, Get-FreeSpace, Invoke-FolderScan (was ProcessFolder), Complete-Archiving (was PostArchiving) and Test-WritablePath (was Test-Path-Writable). Tests updated
 - Code: Dead code removed: the file attribute legend, the Write-Debug in Remove-RootDir, two commented test lines, the check for a Log writer which no longer exists and the 500 ms sleep after closing the catalog writers (Close flushes). --workdir is accepted and ignored like --logfile, its value was stored and never read. MyContext is a plain hashtable: nothing writes it from another thread
 - Bug: The "Started on" and "Task end" log times used a 12-hour clock without AM/PM (01:05:12 could be morning or afternoon). They now use the 24-hour clock
+- Code: Duplicated code folded into functions, same behavior: Invoke-Action runs the pre and the post action (was two copies), Complete-Run ends the run with post action, notification and cleanup (was five copies), New-SevenZipProcess and Start-SevenZip prepare and start 7-Zip with the password on its input (was two copies, archiving and listing), Get-ArchiveSize sums the archive files (was two copies) and Get-NotificationContent builds recipients, subject, urgency, body and attachments once for the SmtpClient and the MailKit email paths
+- Code: The listing 7-Zip process now runs in the root directory like the archiving one. Its error output still goes to the console
+- Code: Not folded on purpose: the selected file counters in Invoke-FolderScan and the support files loop. A function call costs about 115 us more than the inline lines per selected file (measured: 125 us against 10 us on Windows PowerShell 5.1), about two minutes per million files
 
 ## 2.3.0-Stable (2026-10-04, Anlan)
 
