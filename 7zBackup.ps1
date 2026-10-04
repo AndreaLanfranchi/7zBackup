@@ -16,7 +16,7 @@
 # Give credit to the following contributors:
 # (please do not remove - add your name if you contribute)
 #
-#  * Andrea Lanfranchi - Anlan (http://www.anlan.com)
+#  * Andrea Lanfranchi - Anlan (https://github.com/AndreaLanfranchi)
 #
 # Version history: see CHANGELOG.md (newest first). For a new version, update
 # $version below and add its entry at the top of CHANGELOG.md
