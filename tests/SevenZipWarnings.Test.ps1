@@ -7,13 +7,12 @@
 
 $ErrorActionPreference = "SilentlyContinue"   # same as 7zBackup.ps1
 
-# Load function definitions and the archiving block only: the script body is not executed
+# Load function definitions only: the script body is not executed
 $scriptFile = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\7zBackup.ps1"))
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptFile, [ref]$null, [ref]$null)
 foreach ($fn in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $False)) {
 	. ([scriptblock]::Create($fn.Extent.Text))
 }
-$archivingBlock = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '$BkDryRun -ne $True' }, $False)
 
 $Failures = 0
 Function Assert ([bool]$condition, [string]$message) {
@@ -21,7 +20,7 @@ Function Assert ([bool]$condition, [string]$message) {
 	Else { Write-Host " FAIL : $message" -ForegroundColor Red; $script:Failures++ }
 }
 
-Assert ($null -ne $archivingBlock) "precondition, archiving block found in 7zBackup.ps1"
+Assert ($null -ne (Get-Command Invoke-Archiving -ErrorAction SilentlyContinue)) "precondition, Invoke-Archiving found in 7zBackup.ps1"
 
 $Bk7ZipBin = @("$env:ProgramFiles\7-Zip\7z.exe", "${env:ProgramFiles(x86)}\7-Zip\7z.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 If(!$Bk7ZipBin) { Write-Host " 7z.exe not found"; exit 1 }
@@ -53,7 +52,6 @@ foreach ($withFailures in $True, $False) {
 	$BkArchivePrefix = "test"
 	$BkArchiveType   = "7z"
 	$BkArchiveName   = "test-copy-20260912-120000.7z"
-	$totalBytes      = [int64]0
 	$Counters        = @{ Exclusions = 0; Warnings = 0; Exceptions = 0; Criticals = 0; FoldersDone = 1; FilesProcessed = $items.Count; FilesSelected = $items.Count; BytesSelected = [int64]1; BytesAvailable = [int64]0; PlaceHolders = @() }
 	$SWriters        = @{}
 	$MyContext       = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); StartDir = $env:TEMP; SelectionStart = (Get-Date); SevenZBinVersionInfo = @{ ProductVersion = $SevenZipVersion; Major = $SevenZipVersion.Split(".")[0] } })
@@ -61,7 +59,7 @@ foreach ($withFailures in $True, $False) {
 
 	$lock = $null
 	If($withFailures) { $lock = [System.IO.File]::Open("$alias\locked.txt", 'Open', 'ReadWrite', 'None') }
-	. ([scriptblock]::Create($archivingBlock.Extent.Text))
+	Invoke-Archiving
 	If($lock) { $lock.Close() }
 	Set-Location -Path $env:TEMP
 

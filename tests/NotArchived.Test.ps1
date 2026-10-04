@@ -76,7 +76,7 @@ Function Invoke-Case {
 
 	Assert ($exitCode -eq 1) "${label}: precondition, 7-Zip exits with 1 (locked file not stored)"
 
-	Complete-Archiving
+	Complete-Archiving $script:warningItems
 
 	$log = $script:MyContext.Logger.ToString()
 	$notArchived = @([regex]::Matches($log, 'NOT ARCHIVED : ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value.Trim() })

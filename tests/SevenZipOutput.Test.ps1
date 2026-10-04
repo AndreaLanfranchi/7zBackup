@@ -9,13 +9,12 @@
 
 $ErrorActionPreference = "SilentlyContinue"   # same as 7zBackup.ps1
 
-# Load function definitions and the archiving block only: the script body is not executed
+# Load function definitions only: the script body is not executed
 $scriptFile = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\7zBackup.ps1"))
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptFile, [ref]$null, [ref]$null)
 foreach ($fn in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $False)) {
 	. ([scriptblock]::Create($fn.Extent.Text))
 }
-$archivingBlock = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '$BkDryRun -ne $True' }, $False)
 
 $Failures = 0
 Function Assert ([bool]$condition, [string]$message) {
@@ -23,7 +22,7 @@ Function Assert ([bool]$condition, [string]$message) {
 	Else { Write-Host " FAIL : $message" -ForegroundColor Red; $script:Failures++ }
 }
 
-Assert ($null -ne $archivingBlock) "precondition, archiving block found in 7zBackup.ps1"
+Assert ($null -ne (Get-Command Invoke-Archiving -ErrorAction SilentlyContinue)) "precondition, Invoke-Archiving found in 7zBackup.ps1"
 
 Write-Host "`n Case: 20,000 stdout lines and 3 stderr lines, printed at once"
 $work      = Join-Path $env:TEMP ("7zb-test-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
@@ -56,13 +55,12 @@ $BkDestPath      = "$work\dest"
 $BkArchivePrefix = "test"
 $BkArchiveType   = "7z"
 $BkArchiveName   = "test-copy-20260913-120000.7z"
-$totalBytes      = [int64]0
 $Counters        = @{ Exclusions = 0; Warnings = 0; Exceptions = 0; Criticals = 0; FoldersDone = 1; FilesProcessed = 1; FilesSelected = 1; BytesSelected = [int64]1; BytesAvailable = [int64]0; PlaceHolders = @(); Extensions = @{} }
 $SWriters        = @{}
 $MyContext       = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); StartDir = $env:TEMP; SelectionStart = (Get-Date); SevenZBinVersionInfo = @{ ProductVersion = "19.00"; Major = "19" } })
 Set-Location -Path $BkRootDir
 
-. ([scriptblock]::Create($archivingBlock.Extent.Text))
+Invoke-Archiving
 Set-Location -Path $env:TEMP
 
 $detail = @([System.IO.File]::ReadAllLines($BkCompressDetail))
@@ -112,7 +110,7 @@ $SWriters   = @{}
 $MyContext  = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); StartDir = $env:TEMP; SelectionStart = (Get-Date); SevenZBinVersionInfo = @{ ProductVersion = "19.00"; Major = "19" } })
 Set-Location -Path $BkRootDir
 
-. ([scriptblock]::Create($archivingBlock.Extent.Text))
+Invoke-Archiving
 Set-Location -Path $env:TEMP
 
 $detail   = @([System.IO.File]::ReadAllLines($BkCompressDetail))
@@ -120,7 +118,7 @@ $logLines = @($MyContext.Logger.ToString().Split("`n") | ForEach-Object { $_.Tri
 
 Assert ($Bk7ZipRetc -eq 1)                                                          "precondition, the fake 7-Zip exits with 1"
 $lateStart = (Get-Item -LiteralPath "$work\late-start.txt").LastWriteTime
-Assert ($oProcess.ExitTime -lt $lateStart)                                          "precondition, the fake 7-Zip exited before the late lines were written [exit $($oProcess.ExitTime.ToString('HH:mm:ss.fff')), late $($lateStart.ToString('HH:mm:ss.fff'))]"
+Assert ($MyContext.SevenZipProcess.ExitTime -lt $lateStart)                                          "precondition, the fake 7-Zip exited before the late lines were written [exit $($MyContext.SevenZipProcess.ExitTime.ToString('HH:mm:ss.fff')), late $($lateStart.ToString('HH:mm:ss.fff'))]"
 Assert (($detail -join "|") -eq "+ Alias\early.txt|+ Alias\late.txt")               "Compress-Detail.txt has the late stdout line [$($detail -join ' | ')]"
 Assert (($logLines -join "|") -eq " !early err| !late err 1| !late err 2")          "late stderr lines are logged, the last one without a newline too [$($logLines -join ' | ')]"
 

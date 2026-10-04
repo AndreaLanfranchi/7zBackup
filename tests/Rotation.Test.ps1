@@ -6,13 +6,12 @@
 
 $ErrorActionPreference = "SilentlyContinue"   # same as 7zBackup.ps1
 
-# Load function definitions and the rotation block only: the script body is not executed
+# Load function definitions only: the script body is not executed
 $scriptFile = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\7zBackup.ps1"))
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptFile, [ref]$null, [ref]$null)
 foreach ($fn in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $False)) {
 	. ([scriptblock]::Create($fn.Extent.Text))
 }
-$rotationBlock = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '($BkRotate -ge 1)' }, $True)
 
 $Failures = 0
 Function Assert ([bool]$condition, [string]$message) {
@@ -20,7 +19,7 @@ Function Assert ([bool]$condition, [string]$message) {
 	Else { Write-Host " FAIL : $message" -ForegroundColor Red; $script:Failures++ }
 }
 
-Assert ($null -ne $rotationBlock) "precondition, rotation block found in 7zBackup.ps1"
+Assert ($null -ne (Get-Command Invoke-Rotation -ErrorAction SilentlyContinue)) "precondition, Invoke-Rotation found in 7zBackup.ps1"
 
 $work = Join-Path $env:TEMP ("7zb-test-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 New-Item -ItemType Directory $work -Force | Out-Null
@@ -38,7 +37,7 @@ $BkArchiveName   = $newArchive
 $BkRotate        = 1
 $MyContext       = [hashtable]::Synchronized(@{ Logger = (New-Object System.Text.StringBuilder) })
 
-. ([scriptblock]::Create($rotationBlock.Extent.Text))
+Invoke-Rotation
 
 Assert (Test-Path -LiteralPath (Join-Path $work $newArchive))    "new archive of this job is kept"
 Assert (!(Test-Path -LiteralPath (Join-Path $work $oldArchive))) "old archive of this job is removed"
@@ -56,7 +55,7 @@ $BkDestPath    = $volWork
 $BkArchiveName = $volNew
 $BkRotate      = 2
 $MyContext     = [hashtable]::Synchronized(@{ Logger = (New-Object System.Text.StringBuilder) })
-. ([scriptblock]::Create($rotationBlock.Extent.Text))
+Invoke-Rotation
 Assert (@($MyContext.Logger.ToString().Split("`n") | Where-Object { $_ -match "^ New " }).Count -eq 3) "the 3 parts of the new archive are labelled New"
 Assert ((Test-Path -LiteralPath "$volWork\$volNew.003"))                               "all parts of the new archive are kept"
 Assert ((Test-Path -LiteralPath "$volWork\srv-full-20260102-120000.7z.002"))           "all parts of the previous archive are kept"

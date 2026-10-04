@@ -7,13 +7,12 @@
 
 $ErrorActionPreference = "SilentlyContinue"   # same as 7zBackup.ps1
 
-# Load function definitions and the archiving block only: the script body is not executed
+# Load function definitions only: the script body is not executed
 $scriptFile = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\7zBackup.ps1"))
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptFile, [ref]$null, [ref]$null)
 foreach ($fn in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $False)) {
 	. ([scriptblock]::Create($fn.Extent.Text))
 }
-$archivingBlock = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '$BkDryRun -ne $True' }, $False)
 
 $Failures = 0
 Function Assert ([bool]$condition, [string]$message) {
@@ -21,7 +20,7 @@ Function Assert ([bool]$condition, [string]$message) {
 	Else { Write-Host " FAIL : $message" -ForegroundColor Red; $script:Failures++ }
 }
 
-Assert ($null -ne $archivingBlock) "precondition, archiving block found in 7zBackup.ps1"
+Assert ($null -ne (Get-Command Invoke-Archiving -ErrorAction SilentlyContinue)) "precondition, Invoke-Archiving found in 7zBackup.ps1"
 
 $work      = Join-Path $env:TEMP ("7zb-test-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 $BkRootDir = Join-Path $work "root"
@@ -58,13 +57,12 @@ foreach ($case in $cases) {
 	$BkClearBit      = $False
 	$BkArchiveType   = "7z"
 	$BkArchiveName   = "test.7z"
-	$totalBytes      = [int64]0
 	$Counters        = @{ Exclusions = 0; Warnings = 0; Exceptions = 0; Criticals = 0; FoldersDone = 1; FilesProcessed = 1; FilesSelected = 1; BytesSelected = [int64]1; BytesAvailable = [int64]0; PlaceHolders = @(); Extensions = @{} }
 	$SWriters        = @{}
 	$MyContext       = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); StartDir = $env:TEMP; SelectionStart = (Get-Date); SevenZBinVersionInfo = @{ ProductVersion = "19.00"; Major = "19" } })
 	Remove-Variable -Name Bk7ZipRetc -Scope Script
 	Set-Location -Path $BkRootDir
-	. ([scriptblock]::Create($archivingBlock.Extent.Text))
+	Invoke-Archiving
 	Set-Location -Path $env:TEMP
 	$log = $MyContext.Logger.ToString()
 

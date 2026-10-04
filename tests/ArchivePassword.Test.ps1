@@ -8,13 +8,12 @@
 
 $ErrorActionPreference = "SilentlyContinue"   # same as 7zBackup.ps1
 
-# Load function definitions and the archiving block only: the script body is not executed
+# Load function definitions only: the script body is not executed
 $scriptFile = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\7zBackup.ps1"))
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptFile, [ref]$null, [ref]$null)
 foreach ($fn in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $False)) {
 	. ([scriptblock]::Create($fn.Extent.Text))
 }
-$archivingBlock = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '$BkDryRun -ne $True' }, $False)
 
 $Failures = 0
 Function Assert ([bool]$condition, [string]$message) {
@@ -22,7 +21,7 @@ Function Assert ([bool]$condition, [string]$message) {
 	Else { Write-Host " FAIL : $message" -ForegroundColor Red; $script:Failures++ }
 }
 
-Assert ($null -ne $archivingBlock) "precondition, archiving block found in 7zBackup.ps1"
+Assert ($null -ne (Get-Command Invoke-Archiving -ErrorAction SilentlyContinue)) "precondition, Invoke-Archiving found in 7zBackup.ps1"
 
 $real7z = @("$env:ProgramFiles\7-Zip\7z.exe", "${env:ProgramFiles(x86)}\7-Zip\7z.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 If(!$real7z) { Write-Host " 7z.exe not found"; exit 1 }
@@ -66,7 +65,6 @@ $BkDestPath        = "$work\dest"
 $BkArchivePrefix   = "test"
 $BkArchiveType     = "7z"
 $BkArchiveName     = "test-incr-20260912-120000.7z"
-$totalBytes        = [int64]0
 $Counters          = @{ Exclusions = 0; Warnings = 0; Exceptions = 0; Criticals = 0; FoldersDone = 1; FilesProcessed = 1; FilesSelected = 1; BytesSelected = [int64]1; BytesAvailable = [int64]0; PlaceHolders = @() }
 $SWriters          = @{}
 $MyContext         = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); StartDir = $env:TEMP; SelectionStart = (Get-Date); SevenZBinVersionInfo = @{ ProductVersion = $SevenZipVersion; Major = $SevenZipVersion.Split(".")[0] } })
@@ -76,7 +74,7 @@ Set-Location -Path $BkRootDir
 $savedInputEncoding = [Console]::InputEncoding
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 $VerbosePreference = "Continue"
-$verbose = (. ([scriptblock]::Create($archivingBlock.Extent.Text)) 4>&1 | Where-Object { $_ -is [System.Management.Automation.VerboseRecord] } | Out-String)
+$verbose = (Invoke-Archiving 4>&1 | Where-Object { $_ -is [System.Management.Automation.VerboseRecord] } | Out-String)
 $VerbosePreference = "SilentlyContinue"
 [Console]::InputEncoding = $savedInputEncoding
 Set-Location -Path $env:TEMP
