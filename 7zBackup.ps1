@@ -836,7 +836,7 @@ Function ProcessFolder ($thisFolder) {
 	Trace-ScanProgress $thisFolder "Scanning ... "
 	
 	# If it is an empty directory
-	If($scanThisPathForRecursion -and (!$childItems.Count) -and ($BkKeepEmptyDirs -eq $True) -and !($childItemsScanError)) {
+	If($scanThisPathForFiles -and $scanThisPathForRecursion -and (!$childItems.Count) -and ($BkKeepEmptyDirs -eq $True) -and !($childItemsScanError)) {
 		
 		# Older versions of 7zip require at least one file to save a folder
 		# Newer versions will simply create the folder

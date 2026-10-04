@@ -39,8 +39,8 @@ Function Invoke-Scan ([string]$work, [string]$source, [switch]$lowerCaseDrive, [
 
 	$script:BkSources = @{ $aliasName = $source }
 	$script:Counters  = @{ Exclusions = 0; Exceptions = 0; FoldersDone = 0; FilesProcessed = 0; FilesSelected = 0; BytesSelected = [int64]0; PlaceHolders = @(); Extensions = @{} }
-	$script:MyContext = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); SelectionStart = (Get-Date) })
-	$inclusions       = Join-Path $work "Catalog-Include.txt"
+	$script:MyContext = [hashtable]::Synchronized(@{ Cancelling = $False; Logger = (New-Object System.Text.StringBuilder); SelectionStart = (Get-Date); SevenZBinVersionInfo = @{ Major = 24 } })
+	$inclusions      = Join-Path $work "Catalog-Include.txt"
 	$script:SWriters  = @{ Inclusions = (New-Object System.IO.StreamWriter($inclusions, $False, [System.Text.Encoding]::UTF8)) }
 	foreach ($name in "Exclusions", "Exceptions") { $script:SWriters[$name] = New-Object System.IO.StreamWriter((Join-Path $work "$name.txt"), $False, [System.Text.Encoding]::ASCII) }
 
@@ -124,6 +124,21 @@ $included = @(Invoke-Scan $work $source -lowerCaseDrive)
 Assert ($included -contains "Alias\sub\deep.txt")      "file in a subfolder is selected with its path relative to the root dir"
 Assert (@($included -like "*skipped.txt").Count -eq 0) "matchexcludepath anchored on the alias still excludes its folder"
 
+Remove-Item -LiteralPath $work -Recurse -Force
+
+# -----------------------------------------------------------------------------
+Write-Host "`n Case: an empty folder matching matchexcludepath is not kept as an empty folder"
+$work   = New-WorkDir
+$source = Join-Path $work "source"
+New-Item -ItemType Directory "$source\skip", "$source\emptyok" -Force | Out-Null
+Set-Content -LiteralPath "$source\keep.txt" -Value "keep"
+
+$BkType = "full"; $BkNoFollowJunctions = $False; $BkDryRun = $False; $matchcleanupfiles = $null; $matchexcludepath = '^Alias\\skip$'; $BkKeepEmptyDirs = $True
+$included = @(Invoke-Scan $work $source)
+Assert ($included -contains "Alias\emptyok")  "precondition, an empty folder not matching is kept [$($included -join ', ')]"
+Assert (!($included -contains "Alias\skip"))  "the empty excluded folder is not selected [$($included -join ', ')]"
+
+$BkKeepEmptyDirs = $null
 Remove-Item -LiteralPath $work -Recurse -Force
 
 # -----------------------------------------------------------------------------
