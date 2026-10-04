@@ -2454,6 +2454,7 @@ public class SevenZipOutput {
 		
 		# HasExited can be true before the last output events ran: WaitForExit() without a timeout waits for them
 		$oProcess.WaitForExit()
+		Write-Progress -Activity "." -Status "." -Completed
 		$stdErrLine = $null
 		While($sevenZipOutput.TryGetError([ref]$stdErrLine)) { Trace (" !{0}" -f $stdErrLine) }
 
