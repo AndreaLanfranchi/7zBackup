@@ -3,7 +3,7 @@
 Changes to 7zBackup.ps1, newest version first. Categories: Bug, Feat (feature), Code, Speed, Sec (security),
 Ui (user interface). Some old entries use Minor or New, or have no category.
 
-## Unreleased
+## 2.4.0-Stable (2026-10-17, Anlan)
 
 - Bug: A junction or symbolic link to one of its own parent folders was scanned until the path got too long. A folder is now scanned once, however many paths lead to it: the scan keeps the identity of each folder scanned (volume serial number and file index) and skips a folder already seen, logged as visited in the exclusions. The first path wins, so a folder reached by two links is no longer selected twice. Cost: about 0.12 ms per folder (one handle opened)
 - Feat: The archiving progress shows the real percent reported by 7-Zip (-bsp1) as a progress bar, with the archive size as before. 7-Zip 9 prints no percent: it keeps the size only. The progress is refreshed every 0.5 seconds (was 2.5) and CTRL+C is checked as often
