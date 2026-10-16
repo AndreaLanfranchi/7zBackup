@@ -1,7 +1,8 @@
 # Test for the 7-Zip exit code handling of the archiving block.
 # A fake 7-Zip exits with a given code and, for some cases, leaves a partial
 # archive behind. Fatal codes must be logged, counted as critical, and the
-# partial archive removed.
+# partial archive removed. A code 7-Zip does not document (3, or a crash code,
+# which is negative) with an archive on disk is a failure too.
 #
 # Usage: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\ExitCodes.Test.ps1
 
@@ -37,15 +38,17 @@ $cases = @(
 	@{ Code = 2;   Text = "7-Zip reported a fatal error";             Critical = 1; Left = $False },
 	@{ Code = 7;   Text = "wrong command line";                      Critical = 1; Left = $False; Extra = "-t7z" },
 	@{ Code = 8;   Text = "not enough memory";                       Critical = 1; Left = $False },
-	@{ Code = 3;   Text = "NO ARCHIVE HAS BEEN CREATED";             Critical = 1; Left = $False; Leave = $False },
-	@{ Code = 1;   Text = "";                                        Critical = 0; Left = $True;  Leave = $True }
+	@{ Code = 3;   Text = "NO ARCHIVE HAS BEEN CREATED";             Critical = 1; Left = $False; NoArchive = $True },
+	@{ Code = 3;   Text = "exited with code 3";                      Critical = 1; Left = $False },
+	@{ Code = -1073741819; Text = "exited with code -1073741819";    Critical = 1; Left = $False },
+	@{ Code = 1;   Text = "";                                        Critical = 0; Left = $True }
 )
 
 foreach ($case in $cases) {
 	Write-Host "`n Case: 7-Zip exit code $($case.Code)"
 	$fake7z = Join-Path $work "7z-fake.cmd"
 	$lines = @('@echo off')
-	If($case.Code -ne 3) { $lines += ('echo partial> "{0}"' -f $archive) }
+	If(!$case.NoArchive) { $lines += ('echo partial> "{0}"' -f $archive) }
 	$lines += ('exit /b {0}' -f $case.Code)
 	Set-Content -LiteralPath $fake7z -Encoding Ascii -Value $lines
 	Remove-Item -LiteralPath $archive -Force
