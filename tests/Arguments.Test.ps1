@@ -68,9 +68,9 @@ foreach ($option in $switchOptions) {
 	Assert ($messages.Count -eq 0 -and (Get-Variable -Name $variable -Scope Script).Value -eq $True -and $BkType -ceq "full") "$name -> $variable"
 }
 
-Write-Host "`n Case: the value of an option is taken as is, even when it looks like an option"
-$messages = @(Invoke-Parser @("--logfile", "--dry", "--prefix", "--type"))
-Assert ($messages.Count -eq 0 -and $null -eq $BkDryRun -and $BkArchivePrefix -ceq "--type") "--logfile --dry swallows --dry; --prefix --type takes '--type' as prefix"
+Write-Host "`n Case: the value of an option is taken as is, unless it is the name of another option"
+$messages = @(Invoke-Parser @("--prefix", "--not-an-option", "--logfile", "--dry"))
+Assert ($messages.Count -eq 1 -and $messages[0] -ceq "Missing value for argument --logfile" -and $BkArchivePrefix -ceq "--not-an-option" -and $BkDryRun -eq $True) "--prefix takes '--not-an-option'; --logfile before the option --dry is reported, --dry is still read [$($messages -join ' | ')]"
 
 Write-Host "`n Case: aliases give the same result"
 foreach ($alias in @(@("--prefix", "--archiveprefix"), @("--password", "--archivepassword"), @("--notify", "--notifyto"), @("--7zbin", "--7zipbin"))) {
@@ -94,9 +94,9 @@ Write-Host "`n Case: an empty command line sets nothing"
 $messages = @(Invoke-Parser @())
 Assert ($messages.Count -eq 0 -and @(Get-Variable -Name "Bk*" -Scope Script | Where-Object { $_.Name -ne "BkArguments" }).Count -eq 0) "no message, no variable"
 
-Write-Host "`n Case: an option at the end of the line without its value does not fail"
+Write-Host "`n Case: an option at the end of the line without its value is reported"
 $messages = @(Invoke-Parser @("--type"))
-Assert ($messages.Count -eq 0 -and $null -eq $BkType) "--type alone is left unset"
+Assert ($messages.Count -eq 1 -and $messages[0] -ceq "Missing value for argument --type" -and $null -eq $BkType) "--type alone is reported and left unset [$($messages -join ' | ')]"
 
 Write-Host "`n Case: --jbin is accepted and ignored, with a warning"
 $script:MyContext = [hashtable]::Synchronized(@{ Logger = (New-Object System.Text.StringBuilder) })

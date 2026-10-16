@@ -41,17 +41,23 @@ $cases = @(
 	@{ Code = 3;   Text = "NO ARCHIVE HAS BEEN CREATED";             Critical = 1; Left = $False; NoArchive = $True },
 	@{ Code = 3;   Text = "exited with code 3";                      Critical = 1; Left = $False },
 	@{ Code = -1073741819; Text = "exited with code -1073741819";    Critical = 1; Left = $False },
-	@{ Code = 1;   Text = "";                                        Critical = 0; Left = $True }
+	@{ Code = 1;   Text = "";                                        Critical = 0; Left = $True },
+	# Volumes: the parts are test.7z.001, test.7z.002, there is no test.7z. All parts of a failed archive must go
+	@{ Code = 2;   Text = "7-Zip reported a fatal error";             Critical = 1; Left = $False; Parts = @(".001", ".002") },
+	@{ Code = 255; Text = "User has stopped 7-Zip archiving process"; Critical = 1; Left = $False; Parts = @(".001", ".002") },
+	@{ Code = 3;   Text = "exited with code 3";                      Critical = 1; Left = $False; Parts = @(".001", ".002") },
+	@{ Code = 1;   Text = "";                                        Critical = 0; Left = $True;  Parts = @(".001", ".002") }
 )
 
 foreach ($case in $cases) {
 	Write-Host "`n Case: 7-Zip exit code $($case.Code)"
 	$fake7z = Join-Path $work "7z-fake.cmd"
 	$lines = @('@echo off')
-	If(!$case.NoArchive) { $lines += ('echo partial> "{0}"' -f $archive) }
+	$names = If($case.Parts) { @($case.Parts | ForEach-Object { "$archive$_" }) } Else { @($archive) }
+	If(!$case.NoArchive) { $names | ForEach-Object { $lines += ('echo partial> "{0}"' -f $_) } }
 	$lines += ('exit /b {0}' -f $case.Code)
 	Set-Content -LiteralPath $fake7z -Encoding Ascii -Value $lines
-	Remove-Item -LiteralPath $archive -Force
+	Get-ChildItem -LiteralPath $BkDestPath -Filter "test.7z*" | Remove-Item -Force
 	Set-Content -LiteralPath $BkCompressDetail -Value ""
 
 	$Bk7ZipBin       = $fake7z
@@ -72,7 +78,7 @@ foreach ($case in $cases) {
 	Assert ($Bk7ZipRetc -eq $case.Code)                          "precondition, exit code is $($case.Code)"
 	Assert ($log.Contains($case.Text))                           "log says [$($case.Text)]"
 	Assert ($Counters.Criticals -eq $case.Critical)              "critical count is $($case.Critical) [$($Counters.Criticals)]"
-	Assert ((Test-Path -LiteralPath $archive) -eq $case.Left)    "partial archive left on disk: $($case.Left)"
+	Assert ((@(Get-ChildItem -LiteralPath $BkDestPath -Filter "test.7z*").Count -gt 0) -eq $case.Left) "partial archive left on disk: $($case.Left)"
 	If($case.Extra) { Assert ($log.Contains($case.Extra))        "log shows the command line [$($case.Extra)]" }
 }
 

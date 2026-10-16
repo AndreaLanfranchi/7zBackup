@@ -582,8 +582,20 @@ Function Start-SevenZip ($process, [int]$prompts) {
 # -----------------------------------------------------------------------------
 Function Get-ArchiveSize {
 	$size = [int64]0
-	Get-ChildItem -LiteralPath $BkDestPath -Filter ("{0}*" -f $BkArchiveName) | Where-Object { !$_.PSIsContainer } | ForEach-Object { $_.Refresh(); $size += $_.Length }
+	Get-ArchiveFiles | ForEach-Object { $_.Refresh(); $size += $_.Length }
 	$size
+}
+
+# -----------------------------------------------------------------------------
+# Function 		: Get-ArchiveFiles
+# -----------------------------------------------------------------------------
+# Description	: The files of the archive being written: the archive itself, or
+#				  its volume parts (name.001, name.002 ...)
+# Parameters    : -
+# Returns       : The files
+# -----------------------------------------------------------------------------
+Function Get-ArchiveFiles {
+	Get-ChildItem -LiteralPath $BkDestPath -Filter ("{0}*" -f $BkArchiveName) | Where-Object { !$_.PSIsContainer }
 }
 
 # -----------------------------------------------------------------------------
@@ -1277,6 +1289,25 @@ Function Send-Notification {
 }
 
 # -----------------------------------------------------------------------------
+# Function 		: New-LockFile
+# -----------------------------------------------------------------------------
+# Description	: Creates the lock file with the process id, start time and root
+#				  dir of this run. It never replaces a lock file: if another run
+#				  created one in the meantime, this run does not get the lock
+# Parameters    : -
+# Returns       : $True / $False
+# -----------------------------------------------------------------------------
+Function New-LockFile {
+	$me = [System.Diagnostics.Process]::GetCurrentProcess()
+	$bytes = [System.Text.Encoding]::ASCII.GetBytes(("PID={0}`r`nStart={1}`r`nRoot={2}`r`n" -f $me.Id, $me.StartTime.ToUniversalTime().Ticks, $BkRootDir))
+	Try {
+		$stream = [System.IO.File]::Open($BkLockFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+		Try { $stream.Write($bytes, 0, $bytes.Length) } Finally { $stream.Close() }
+		Return $True
+	} Catch { Return $False }
+}
+
+# -----------------------------------------------------------------------------
 # Function 		: Test-Lock
 # -----------------------------------------------------------------------------
 # Description	: This function is used to check if a previous lock file exists
@@ -1336,9 +1367,7 @@ Function Test-Lock {
 	} 
 	
 	# Drop a new lock file in place
-	$me = [System.Diagnostics.Process]::GetCurrentProcess()
-	("PID={0}`nStart={1}`nRoot={2}" -f $me.Id, $me.StartTime.ToUniversalTime().Ticks, $BkRootDir) | Set-Content -LiteralPath $BkLockFile -Encoding Ascii
-	If(!($?)) {
+	If(!(New-LockFile)) {
 		Return ("Could not write lock file`n Quitting ...`n ")
 	}
 	$MyContext.LockOwned = $True
@@ -1680,6 +1709,12 @@ Function Assert-Arguments {
 		If($switchArguments.ContainsKey($argument)) {
 			Set-Variable -Name $switchArguments[$argument] -Value $True -Scope Script
 		} ElseIf($valueArguments.ContainsKey($argument)) {
+			# The value is the next argument, unless there is none or it is an option
+			$next = [string]$BkArguments[$i + 1]
+			If(($i + 1 -ge $BkArguments.Length) -or $switchArguments.ContainsKey($next) -or $valueArguments.ContainsKey($next)) {
+				Write-Output ("Missing value for argument {0}" -f $argument)
+				continue
+			}
 			$i++
 			If($valueArguments[$argument]) { Set-Variable -Name $valueArguments[$argument] -Value $BkArguments[$i] -Scope Script }
 		} Else {
@@ -1770,6 +1805,12 @@ Function Assert-Variables {
 		{
 				
 			Read-SelectionDirectives $BkSelectionContents
+
+			# A regular expression PowerShell can not read would be skipped silently by -match: report it
+			foreach ($line in $BkSelectionContents) {
+				If($line -notmatch "^(?<rule>match(?:cleanupdirs|cleanupfiles|includefiles|excludefiles|excludepath|stoprecurse))=(?<regex>.*)$") { continue }
+				Try { [void](New-Object System.Text.RegularExpressions.Regex($Matches.regex.Trim())) } Catch { Write-Output ("Invalid regular expression in {0} directive: {1}" -f $Matches.rule, $Matches.regex.Trim()) }
+			}
 
 		}
 	}
@@ -2209,7 +2250,7 @@ public class SevenZipOutput {
 			$exitCode = [int]255															# Force return code to 255
 			Start-Sleep -Milliseconds 500
 			# Delete the destination file
-			If(Test-Path -LiteralPath $destFile -PathType Leaf) { Remove-Item -LiteralPath $destFile -Force | Out-Null }
+			Get-ArchiveFiles | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force | Out-Null }
 			break
 		}
 	}
@@ -2378,7 +2419,7 @@ Function Invoke-Archiving {
 			7   = @(" Cancelled ! 7-Zip has been invoked with a wrong command line.", (" {0}" -f $MyContext.SevenZipProcess.StartInfo.Arguments), " NO VALID ARCHIVE HAS BEEN CREATED")
 			8   = @(" Cancelled ! 7-Zip reports not enough memory.", " NO VALID ARCHIVE HAS BEEN CREATED")
 		}
-		$archiveExists = Test-Path -LiteralPath $BkDestFile -PathType Leaf
+		$archiveExists = @(Get-ArchiveFiles).Count -gt 0
 		# A code 7-Zip does not document, with an archive on disk, is a failure too
 		If(!$fatalMessages.ContainsKey([int]$Bk7ZipRetc) -and $archiveExists) {
 			$fatalMessages[[int]$Bk7ZipRetc] = @((" Cancelled ! 7-Zip exited with code {0}." -f $Bk7ZipRetc), " NO VALID ARCHIVE HAS BEEN CREATED")
@@ -2387,8 +2428,8 @@ Function Invoke-Archiving {
 			$Counters.Criticals += 1
 			Trace " "
 			$fatalMessages[[int]$Bk7ZipRetc] | ForEach-Object { Trace $_ }
-			If($archiveExists) { Remove-Item -LiteralPath $BkDestFile -Force | Out-Null }
-		} ElseIf (!(Test-Path -LiteralPath "$BkDestPath\$BkArchiveName" -PathType Leaf)) {
+			If($archiveExists) { Get-ArchiveFiles | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force | Out-Null } }
+		} ElseIf (!$archiveExists) {
 			$Counters.Criticals += 1
 			Trace " "
 			Trace " Error !"
@@ -2435,9 +2476,11 @@ $Counters.PlaceHolders = @()
 Trace $headerText
 
 # Check For the presence of "--help" argument switch
-If($args.length -ne 0) { 
-	switch -wildcard ($args) { "*--help*" {Trace $helpText ; Try {[console]::TreatControlCAsInput = $False} Catch{} ; Return} }
-} 
+If($args -contains "--help") {
+	Trace $helpText
+	Try {[console]::TreatControlCAsInput = $False} Catch{}
+	Return
+}
 
 # Import hard coded variables if present -vars.ps1 script
 Set-Variable -name BkVarsImportScript -value (Join-Path $MyContext.Directory $MyContext.Name.Replace(".ps1", "-vars.ps1")) -scope Script
@@ -2463,7 +2506,7 @@ If($hasErrors) { Trace ("`n Try .\{0} --help `n" -f $MyInvocation.MyCommand.Name
 Set-Variable -Name BkArchiveName -Value ($BkArchivePrefix + "-" + $BkType + "-" + (Get-Date -format "yyyyMMdd-HHmmss") + "." + $BkArchiveType) -Scope Script
 Set-Variable -Name BkRootDir     -Value ($BkWorkDrive + ":\~" + ([System.Guid]::NewGuid().ToString().Split("-")[1])) -Scope Script
 Set-Variable -Name BkLockFile    -Value (Join-Path $Env:Temp ($MyContext.Name.Substring(0, ($MyContext.Name.LastIndexOf("."))) + ".lock")) -scope Script
-Set-Variable -Name BkSources     -Value @{} -Scope Script
+Set-Variable -Name BkSources     -Value ([ordered]@{}) -Scope Script
 
 Test-Lock | ForEach-Object { $hasErrors = $True; Trace " Err : $_" }
 New-RootDir | ForEach-Object { $hasErrors = $True; Trace " Err : $_" }

@@ -5,7 +5,7 @@
 # - "includesource=path|alias=name" keeps an "=" inside the path
 # - an inline extra file keeps its line breaks
 #
-# Usage: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\ReviewFindings.Test.ps1
+# Usage: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\SpecialCharacters.Test.ps1
 
 $ErrorActionPreference = "SilentlyContinue"   # same as 7zBackup.ps1
 
