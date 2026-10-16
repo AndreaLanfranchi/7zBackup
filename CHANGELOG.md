@@ -3,7 +3,7 @@
 Changes to 7zBackup.ps1, newest version first. Categories: Bug, Feat (feature), Code, Speed, Sec (security),
 Ui (user interface). Some old entries use Minor or New, or have no category.
 
-## Unreleased
+## 2.3.2-Stable (2026-10-16, Anlan)
 
 - Bug: An invalid regular expression in a match* directive of the selection file was skipped without a message, so an exclusion could silently not apply. It is now an error before the run starts
 - Bug: When 7-Zip failed or the user cancelled a volume archive (--volumes), only the first part was handled: the other parts stayed in the destination and counted in rotation. All parts are removed now
