@@ -769,6 +769,51 @@ Function Trace-ScanProgress ($folder, [string]$operation) {
 }
 
 # -----------------------------------------------------------------------------
+# Function 		: Initialize-DirectoryIdentity
+# -----------------------------------------------------------------------------
+# Description	: Defines [DirectoryIdentity]::Get($path), the identity of the
+#				  directory a path really leads to, links followed: volume
+#				  serial number and file index, the same for every path to
+#				  the same directory ($null if it cannot be opened). .NET 4
+#				  cannot resolve a junction target, so the Windows API is
+#				  called. Called directly for each folder: through a function
+#				  the call costs about 240 us more
+# Parameters    : --
+# Returns       : --
+# -----------------------------------------------------------------------------
+Function Initialize-DirectoryIdentity {
+	If(!("DirectoryIdentity" -as [type])) {
+		Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class DirectoryIdentity {
+	[StructLayout(LayoutKind.Sequential)]
+	struct FileTime { public uint Low; public uint High; }
+	[StructLayout(LayoutKind.Sequential)]
+	struct ByHandleFileInformation {
+		public uint FileAttributes;
+		public FileTime CreationTime, LastAccessTime, LastWriteTime;
+		public uint VolumeSerialNumber, FileSizeHigh, FileSizeLow, NumberOfLinks, FileIndexHigh, FileIndexLow;
+	}
+	[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+	static extern SafeFileHandle CreateFile(string name, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+	[DllImport("kernel32.dll", SetLastError = true)]
+	static extern bool GetFileInformationByHandle(SafeFileHandle handle, out ByHandleFileInformation information);
+	public static string Get(string path) {
+		// Share read, write and delete (7); OPEN_EXISTING (3); BACKUP_SEMANTICS (0x02000000) opens a directory
+		using (SafeFileHandle handle = CreateFile(@"\\?\" + path, 0, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero)) {
+			ByHandleFileInformation information;
+			if (handle.IsInvalid || !GetFileInformationByHandle(handle, out information)) { return null; }
+			return String.Format("{0:x}:{1:x}:{2:x}", information.VolumeSerialNumber, information.FileIndexHigh, information.FileIndexLow);
+		}
+	}
+}
+"@
+	}
+}
+
+# -----------------------------------------------------------------------------
 # Function 		: Invoke-FolderScan
 # -----------------------------------------------------------------------------
 # Description	: This is the main scanning/selection routine.
@@ -781,6 +826,14 @@ Function Trace-ScanProgress ($folder, [string]$operation) {
 # Returns       : --
 # -----------------------------------------------------------------------------
 Function Invoke-FolderScan ($thisFolder, $pendingFolders) {
+
+	# A folder is scanned once, however many paths lead to it: a link back to a parent folder would be scanned
+	# forever. The first path wins. The path the scan lists is opened: FullName of a source folder is not under the root dir
+	$folderIdentity = [DirectoryIdentity]::Get([System.IO.Path]::Combine($BkRootDir, $thisFolder.RelativeName))
+	If($folderIdentity -and !$MyContext.VisitedFolders.Add($folderIdentity)) {
+		Add-Exclusion "visited" "D" $thisFolder.RealName
+		Return
+	}
 
 	# Increment number of processed folders
 	$Counters.FoldersDone++
@@ -984,7 +1037,7 @@ Function Invoke-FolderScan ($thisFolder, $pendingFolders) {
 				Add-Exclusion "nofollowjunctions" "D" $childFolderItem.RealName
 				continue
 			}
-			
+
 			[void] $childFolderItems.Add($childFolderItem)
 		}
 		for ($i = $childFolderItems.Count - 1; $i -ge 0; $i--) { $pendingFolders.Push($childFolderItems[$i]) }
@@ -1022,6 +1075,10 @@ Function Invoke-SelectionScan {
 		[void] $rootFolders.Add($itemFolder)
 
 	}
+
+	# Identities of the folders scanned so far (see Invoke-FolderScan)
+	Initialize-DirectoryIdentity
+	$MyContext.VisitedFolders = New-Object System.Collections.Generic.HashSet[string]
 
 	# Pushed in reverse: the first source is scanned first, with its subfolders, then the next one
 	$pendingFolders = New-Object System.Collections.Stack
