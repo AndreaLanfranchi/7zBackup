@@ -3,6 +3,11 @@
 Changes to 7zBackup.ps1, newest version first. Categories: Bug, Feat (feature), Code, Speed, Sec (security),
 Ui (user interface). Some old entries use Minor or New, or have no category.
 
+## Unreleased
+
+- Feat: The archiving progress shows the real percent reported by 7-Zip (-bsp1) as a progress bar, with the archive size as before. 7-Zip 9 prints no percent: it keeps the size only. The progress is refreshed every 0.5 seconds (was 2.5) and CTRL+C is checked as often
+- Code: The progress frames 7-Zip writes to its output are not copied to Compress-Detail.txt
+
 ## 2.3.2-Stable (2026-10-16, Anlan)
 
 - Bug: An invalid regular expression in a match* directive of the selection file was skipped without a message, so an exclusion could silently not apply. It is now an error before the run starts

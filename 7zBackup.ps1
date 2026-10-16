@@ -2160,7 +2160,7 @@ Function Get-SevenZipArguments ([string]$destFile) {
 
 	# If 7zip is beyond version 9.2 then add some more switches
 	If ([int]$MyContext.SevenZBinVersionInfo.Major -ge 15) {
-		$arguments += "-bb1", "-bsp0", "-bso1", "-bse2"
+		$arguments += "-bb1", "-bsp1", "-bso1", "-bse2"
 		If($BkArchiveType -eq "7z") { $arguments += "-mtm=on", "-mtc=on", "-mta=on" }		# Store modified, creation and access timestamps
 	}
 
@@ -2204,17 +2204,29 @@ Function Invoke-SevenZip ([string[]]$arguments, [string]$destFile) {
 	$SWriters.CompressDetail.AutoFlush = $True
 
 	# 7-Zip output is read by C# handlers. PowerShell event actions ran out of order, and actions
-	# still queued when 7-Zip exited were lost. Stdout goes to Compress-Detail, stderr to a queue
+	# still queued when 7-Zip exited were lost. Stdout goes to Compress-Detail, stderr to a queue.
+	# The progress frames 7-Zip writes to stdout with -bsp1 ("  50%" ended by a CR, then spaces to erase
+	# it) do not go to Compress-Detail: the last percent is kept in the Percent field
 	If(!("SevenZipOutput" -as [type])) {
 		Add-Type -TypeDefinition @"
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Text.RegularExpressions;
 public class SevenZipOutput {
+	static readonly Regex percent = new Regex(@"^\s*(\d+)%");
+	static readonly Regex scan = new Regex(@"^\s*\d+\w?\s+Scan\b");
 	readonly ConcurrentQueue<string> errors = new ConcurrentQueue<string>();
+	public volatile int Percent = -1;
 	public SevenZipOutput(Process process, StreamWriter detail) {
-		process.OutputDataReceived += (sender, e) => { if (!String.IsNullOrEmpty(e.Data)) { detail.WriteLine(e.Data); } };
+		process.OutputDataReceived += (sender, e) => {
+			if (String.IsNullOrWhiteSpace(e.Data)) { return; }
+			Match m = percent.Match(e.Data);
+			if (m.Success) { Percent = Int32.Parse(m.Groups[1].Value); return; }
+			if (scan.IsMatch(e.Data)) { return; }
+			detail.WriteLine(e.Data);
+		};
 		process.ErrorDataReceived += (sender, e) => { if (!String.IsNullOrEmpty(e.Data)) { errors.Enqueue(e.Data); } };
 	}
 	public bool TryGetError(out string line) { return errors.TryDequeue(out line); }
@@ -2234,16 +2246,19 @@ public class SevenZipOutput {
 	# Begin polling Process
 	$exitCode = $null
 	While (!($process.HasExited)) {
-		Start-Sleep -Milliseconds 2500
+		Start-Sleep -Milliseconds 500
 		$Status = "Waiting for archive ..."
 		$ArchiveSize = Get-ArchiveSize
 		If ( $ArchiveSize -gt 0 ) { $Status = "Archive Size {0,0:n2} MByte. so far ..." -f ($ArchiveSize / 1Mb) }
+		# -1: no percent yet (7-Zip 9 prints none), Write-Progress shows no bar
+		$percent = $sevenZipOutput.Percent
+		If ( $percent -ge 0 ) { $Status = "{0}% - {1}" -f $percent, $Status }
 
 		# Log the 7-Zip error lines received so far, in order
 		$stdErrLine = $null
 		While($sevenZipOutput.TryGetError([ref]$stdErrLine)) { Trace (" !{0}" -f $stdErrLine) }
 
-		Write-Progress -Activity "Archiving into $destFile" -Status $Status -CurrentOperation "Please wait ..."
+		Write-Progress -Activity "Archiving into $destFile" -Status $Status -CurrentOperation "Please wait ..." -PercentComplete $percent
 		If(Test-CtrlCRequest) {
 			[void]$process.Kill()
 			While (!($process.HasExited)) { Start-Sleep -Milliseconds 100 }
