@@ -280,6 +280,33 @@ If(Test-Path -LiteralPath "$source\Junk\link") { cmd /c "rd `"$source\Junk\link`
 cmd /c "attrib -r -h -s `"$work\*`" /s /d" | Out-Null
 Remove-Item -LiteralPath $work -Recurse -Force
 
+# -----------------------------------------------------------------------------
+Write-Host "`n Case: a folder is scanned once: junctions to a parent folder and two links to the same folder"
+$work   = New-WorkDir
+$source = Join-Path $work "source"
+New-Item -ItemType Directory "$source\Parent\Child", "$work\elsewhere" -Force | Out-Null
+Set-Content -LiteralPath "$source\Parent\p.txt" -Value "p"
+Set-Content -LiteralPath "$source\Parent\Child\c.txt" -Value "c"
+Set-Content -LiteralPath "$work\elsewhere\e.txt" -Value "e"
+# Loops: to the source itself and to the parent. Two links lead to the same outside folder: the first one wins
+cmd /c "mklink /J `"$source\Parent\Child\ToSource`" `"$source`"" | Out-Null
+cmd /c "mklink /J `"$source\Parent\ToParent`" `"$source\Parent`"" | Out-Null
+cmd /c "mklink /J `"$source\Parent\Out1`" `"$work\elsewhere`"" | Out-Null
+cmd /c "mklink /J `"$source\Parent\Out2`" `"$work\elsewhere`"" | Out-Null
+Assert ([int]((Get-Item -LiteralPath "$source\Parent\Child\ToSource" -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) "precondition, ToSource is a junction"
+
+$BkType = "full"; $BkNoFollowJunctions = $False; $BkDryRun = $False; $matchcleanupfiles = $null; $matchcleanupdirs = $null; $matchexcludepath = $null
+$included = @(Invoke-Scan $work $source)
+$excluded = @(Get-Content -LiteralPath "$work\Exclusions.txt")
+Assert ($Counters.FoldersDone -eq 4) "folders scanned: Alias, Parent, Child and Out1 [$($Counters.FoldersDone)]"
+Assert (@($included -like "*p.txt").Count -eq 1) "the file of the looped folder is selected once [$($included -join ', ')]"
+Assert (@($included -like "*c.txt").Count -eq 1) "the file below the looped folder is selected once"
+Assert (@($included -like "*e.txt").Count -eq 1) "the folder reached by two links is scanned once"
+Assert (@($excluded | Where-Object { $_.Contains("`tvisited`tD`t") }).Count -eq 3) "the two looping junctions and the second link are logged [$($excluded -join ' | ')]"
+
+foreach ($link in "Parent\Child\ToSource", "Parent\ToParent", "Parent\Out1", "Parent\Out2") { cmd /c "rd `"$source\$link`"" }
+Remove-Item -LiteralPath $work -Recurse -Force
+
 Write-Host ""
 If($Failures -gt 0) { Write-Host " $Failures assertion(s) failed" -ForegroundColor Red; exit 1 }
 Write-Host " All assertions passed" -ForegroundColor Green
