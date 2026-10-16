@@ -5,6 +5,13 @@ Ui (user interface). Some old entries use Minor or New, or have no category.
 
 ## Unreleased
 
+- Bug: An invalid regular expression in a match* directive of the selection file was skipped without a message, so an exclusion could silently not apply. It is now an error before the run starts
+- Bug: When 7-Zip failed or the user cancelled a volume archive (--volumes), only the first part was handled: the other parts stayed in the destination and counted in rotation. All parts are removed now
+- Bug: Two runs started at the same moment could both get the lock file. It is now created in one step, and only if it does not exist
+- Bug: Any argument containing "--help" (a password, a prefix) printed the help. Only the exact argument --help does
+- Bug: An option without its value (last on the line, or followed by another option) was accepted silently and could take the next option as its value. It is now reported
+- Bug: The sources were scanned in no defined order. They follow the selection file order now
+
 - Bug: A 7-Zip crash (negative exit code, like -1073741819) was taken as success: post archive actions, rotation and "All Done" followed. Only exit codes 0 and 1 are success now
 - Bug: An exit code 7-Zip does not document (3, a crash code) with an archive on disk gave no message and no critical count. The archive is now removed, logged and counted as critical
 - Bug: Folders with [ ] in their name (destination, selection file, source, link name) were refused or missed: they were read as wildcards. Paths are now taken literally
