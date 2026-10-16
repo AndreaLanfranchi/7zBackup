@@ -3,6 +3,14 @@
 Changes to 7zBackup.ps1, newest version first. Categories: Bug, Feat (feature), Code, Speed, Sec (security),
 Ui (user interface). Some old entries use Minor or New, or have no category.
 
+## Unreleased
+
+- Bug: A 7-Zip crash (negative exit code, like -1073741819) was taken as success: post archive actions, rotation and "All Done" followed. Only exit codes 0 and 1 are success now
+- Bug: An exit code 7-Zip does not document (3, a crash code) with an archive on disk gave no message and no critical count. The archive is now removed, logged and counted as critical
+- Bug: Folders with [ ] in their name (destination, selection file, source, link name) were refused or missed: they were read as wildcards. Paths are now taken literally
+- Bug: --notifyextra inline joined the lines of each extra file with spaces. Lines are kept now
+- Bug: includesource paths containing "=" were cut at the "="
+
 ## 2.3.1-Stable (2026-10-05, Anlan)
 
 - Code: Functions renamed to PowerShell Verb-Noun names: Test-EmailAddress, Test-HostName, Test-IPAddress, Get-FreeSpace, Invoke-FolderScan (was ProcessFolder), Complete-Archiving (was PostArchiving) and Test-WritablePath (was Test-Path-Writable). Tests updated
