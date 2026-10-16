@@ -482,7 +482,7 @@ Function New-SymLink {
 	
 	# Before we make any junction we have to test target
 	# path exist
-	If(Test-Path $jTarget) {
+	If(Test-Path -LiteralPath $jTarget) {
 	
 		# Create Link
 		# Junctions need no admin rights, but can only point to local volumes
@@ -491,7 +491,7 @@ Function New-SymLink {
 		Start-Sleep -Milliseconds 10
 		
 		# Test is present
-		Return (Test-Path -Path $jPath)
+		Return (Test-Path -LiteralPath $jPath)
 		
 	}
 	Write-Output $False
@@ -582,7 +582,7 @@ Function Start-SevenZip ($process, [int]$prompts) {
 # -----------------------------------------------------------------------------
 Function Get-ArchiveSize {
 	$size = [int64]0
-	Get-ChildItem -Path $BkDestPath -Filter ("{0}*" -f $BkArchiveName) | Where-Object { !$_.PSIsContainer } | ForEach-Object { $_.Refresh(); $size += $_.Length }
+	Get-ChildItem -LiteralPath $BkDestPath -Filter ("{0}*" -f $BkArchiveName) | Where-Object { !$_.PSIsContainer } | ForEach-Object { $_.Refresh(); $size += $_.Length }
 	$size
 }
 
@@ -1035,15 +1035,15 @@ Function Invoke-SelectionScan {
 Function Remove-RootDir {
 	param([string]$rootPath = $(throw "You must provide a path to the directory"))
 
-	If (Test-Path -Path $rootPath -PathType Container) {
+	If (Test-Path -LiteralPath $rootPath -PathType Container) {
 		Set-Variable -Name "junctionsRemoved" -Value $True -Scope Private | Out-Null
 		# foreach, not ForEach-Object: there Return leaves only the current link and the next success hides the failure
-		foreach ($link in @(Get-ChildItem -Path $rootPath | Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint })) {
+		foreach ($link in @(Get-ChildItem -LiteralPath $rootPath | Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint })) {
 			$junctionsRemoved = Remove-SymLink $link.FullName
 			If(!$junctionsRemoved) { break }
 		}
-		If($junctionsRemoved -And (@(Get-ChildItem -Path $rootPath | Where-Object {$_.PsIsContainer}).Count -eq 0) ) {
-			Remove-Item -Path $rootPath -Recurse -Force | Out-Null
+		If($junctionsRemoved -And (@(Get-ChildItem -LiteralPath $rootPath | Where-Object {$_.PsIsContainer}).Count -eq 0) ) {
+			Remove-Item -LiteralPath $rootPath -Recurse -Force | Out-Null
 			Return $?
 		}
 	}
@@ -1157,7 +1157,7 @@ Function Get-NotificationContent {
 	If($BkNotifyExtra -ne "none") {
 		foreach ($file in Get-NotificationExtras) {
 			If($BkNotifyExtra -ieq "attach") { $content.Attachments += $file.FullName }
-			Else { $content.Body += ("`n`n{0}`n" -f $file.Name) + (Get-Content $file) }
+			Else { $content.Body += ("`n`n{0}`n" -f $file.Name) + ((Get-Content -LiteralPath $file.FullName) -join "`n") }
 		}
 	}
 	$content
@@ -1356,7 +1356,7 @@ Function Test-WritablePath {
 	param([string]$testPath = $(throw "You must provide a path to test"),
 	      [string]$testType = $(throw "You must provide a test item type")) 
 
-	If(!(Test-Path -Path $testPath -PathType Container)) { Return $False }
+	If(!(Test-Path -LiteralPath $testPath -PathType Container)) { Return $False }
 
 	# Create a dummy item named with a Guid in the tested path, then remove it
 	$dummyItem = Join-Path $testPath ( [System.Guid]::NewGuid().ToString() )
@@ -1366,7 +1366,7 @@ Function Test-WritablePath {
 		New-Item $dummyItem -type Directory -force | Out-Null
 	}
 	If(!$?) { Return $False }
-	Remove-Item $dummyItem | Out-Null
+	Remove-Item -LiteralPath $dummyItem | Out-Null
 	Return $?
 }
 
@@ -1747,18 +1747,18 @@ Function Assert-Variables {
 	If (
 		((Test-Variable "BkSelection") -eq $False) -or
 		($BkSelection -match "^\s*$") -or
-		((Test-Path $BkSelection -pathType Leaf) -eq $False)
+		((Test-Path -LiteralPath $BkSelection -pathType Leaf) -eq $False)
 	)	{ Write-Output "Missing or invalid --selection argument. Must be an existent file" } 
 	Else 
 	{
 		
 		# Resolve full name to file
-		Set-Variable -name BkSelection -value ((Get-Item $BkSelection).FullName) -Scope Script
+		Set-Variable -name BkSelection -value ((Get-Item -LiteralPath $BkSelection).FullName) -Scope Script
 		
 		# Try to load Selection Directives (if any)
 		# Load all rows except comments and empty lines.
 		Remove-Variable -name BkSelectionContents -scope Script 
-		Set-Variable -name BkSelectionContents -scope Script -Value @(Get-Content $BkSelection | Where-Object {$_ -notmatch "^#|^\s*$"})
+		Set-Variable -name BkSelectionContents -scope Script -Value @(Get-Content -LiteralPath $BkSelection | Where-Object {$_ -notmatch "^#|^\s*$"})
 		
 		# If we have no directive from selection then handle the error
 		If(
@@ -1800,7 +1800,7 @@ Function Assert-Variables {
 	If(
 		!($BkDestPath) -Or
 		($BkDestPath -match "^\s*$") -Or
-		!(Test-Path $BkDestPath -pathType Container) -Or
+		!(Test-Path -LiteralPath $BkDestPath -pathType Container) -Or
 		!(Test-WritablePath $BkDestPath "File")
 	) { 
 		Write-Output ("Missing or invalid --destpath {0}." -f $BkDestPath) 
@@ -2048,19 +2048,19 @@ Function New-SourceLinks {
 
 		$directiveLine=[string]$_
 		$directiveParts = $directiveLine.split("|", [System.StringSplitOptions]::RemoveEmptyEntries)
-		$target = $directiveParts[0].Split("=")[1]
-		$alias  = $directiveParts[1].Split("=")[1]
+		$target = $directiveParts[0].Split("=", 2)[1]
+		$alias  = $directiveParts[1].Split("=", 2)[1]
 
 		# Trace the selection
 		Trace " + $alias <== $Target"
 
 		# Check target exist
-		If(!(Test-Path $target -pathType Container)) {
+		If(!(Test-Path -LiteralPath $target -pathType Container)) {
 			Trace "   Selection directory $target does not exist. Skipping "
 		} Else {
 
 			# Check alias is not already in use
-			If((Test-Path (Join-Path $BkRootDir $alias))) {
+			If((Test-Path -LiteralPath (Join-Path $BkRootDir $alias))) {
 				Trace "   Alias $alias already in use. Skipping selection of $target"
 			} Else {
 
@@ -2209,7 +2209,7 @@ public class SevenZipOutput {
 			$exitCode = [int]255															# Force return code to 255
 			Start-Sleep -Milliseconds 500
 			# Delete the destination file
-			If(Test-Path -Path $destFile -PathType Leaf) { Remove-Item -LiteralPath $destFile -Force | Out-Null }
+			If(Test-Path -LiteralPath $destFile -PathType Leaf) { Remove-Item -LiteralPath $destFile -Force | Out-Null }
 			break
 		}
 	}
@@ -2274,7 +2274,7 @@ Function Invoke-Rotation {
 	$fileNameRgx = ("^$([Regex]::Escape($BkArchivePrefix))-$BkType-[0-9]{8}-[0-9]{4,6}\.(7z|zip|tar)(\.\d{3})?$")
 	Trace " Archives in $BkDestPath"
 	Trace " ------------------------------------------------------------------------------"
-	Get-ChildItem $BkDestPath | Where-Object { $_.Name -match $fileNameRgx -and !$_.PSIscontainer } | Sort-Object @{expression={$_.Name};Descending=$true} | foreach-object {
+	Get-ChildItem -LiteralPath $BkDestPath | Where-Object { $_.Name -match $fileNameRgx -and !$_.PSIscontainer } | Sort-Object @{expression={$_.Name};Descending=$true} | foreach-object {
 		If(!($BkRotate -le 0)) {
 			If ($_.Name.StartsWith($BkArchiveName, [StringComparison]::OrdinalIgnoreCase)) {
 				Trace (" New      : {0,-48} {1,15:n2} MB " -f $_.Name, $($_.Length / 1MB) ); $totalArchiveBytes += [int64]$_.Length
@@ -2338,7 +2338,8 @@ Function Invoke-Archiving {
 
 	# Check exit code by 7zip - If ErrorLevel is <2 then we assume backup
 	# process completed successfully
-	If(($Bk7ZipRetc -lt 2) -and ($ArchiveSize -gt 0) -and !(Test-CtrlCRequest)) {
+	# A crash gives a negative code, like -1073741819: only 0 and 1 are success
+	If(($Bk7ZipRetc -in 0, 1) -and ($ArchiveSize -gt 0) -and !(Test-CtrlCRequest)) {
 
 		# Output informations in log file
 		Trace (" Created      : {1} in {0} " -f $BkDestPath, $BkArchiveName)
@@ -2377,12 +2378,17 @@ Function Invoke-Archiving {
 			7   = @(" Cancelled ! 7-Zip has been invoked with a wrong command line.", (" {0}" -f $MyContext.SevenZipProcess.StartInfo.Arguments), " NO VALID ARCHIVE HAS BEEN CREATED")
 			8   = @(" Cancelled ! 7-Zip reports not enough memory.", " NO VALID ARCHIVE HAS BEEN CREATED")
 		}
+		$archiveExists = Test-Path -LiteralPath $BkDestFile -PathType Leaf
+		# A code 7-Zip does not document, with an archive on disk, is a failure too
+		If(!$fatalMessages.ContainsKey([int]$Bk7ZipRetc) -and $archiveExists) {
+			$fatalMessages[[int]$Bk7ZipRetc] = @((" Cancelled ! 7-Zip exited with code {0}." -f $Bk7ZipRetc), " NO VALID ARCHIVE HAS BEEN CREATED")
+		}
 		If ($fatalMessages.ContainsKey([int]$Bk7ZipRetc)) {
 			$Counters.Criticals += 1
 			Trace " "
 			$fatalMessages[[int]$Bk7ZipRetc] | ForEach-Object { Trace $_ }
-			If(Test-Path -Path $BkDestFile -PathType Leaf) { Remove-Item -LiteralPath $BkDestFile -Force | Out-Null }
-		} ElseIf (!(Test-Path -Path "$BkDestPath\$BkArchiveName" -PathType Leaf)) {
+			If($archiveExists) { Remove-Item -LiteralPath $BkDestFile -Force | Out-Null }
+		} ElseIf (!(Test-Path -LiteralPath "$BkDestPath\$BkArchiveName" -PathType Leaf)) {
 			$Counters.Criticals += 1
 			Trace " "
 			Trace " Error !"
