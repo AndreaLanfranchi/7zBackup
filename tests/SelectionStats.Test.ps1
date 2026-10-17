@@ -33,8 +33,8 @@ Write-SelectionStats
 $lines = @($MyContext.Logger.ToString().Split("`n") | ForEach-Object { $_.TrimEnd() })
 $pdfRow   = [array]::IndexOf($lines, @($lines | Where-Object { $_ -match '^ \.pdf\s+1\s' })[0])
 $txtRow   = [array]::IndexOf($lines, @($lines | Where-Object { $_ -match '^ \.txt\s+2\s' })[0])
-$emptyRow = @($lines | Where-Object { $_ -match '^ {32}\s*1\s+0[.,]00\s' }).Count
-$totalRow = @($lines | Where-Object { $_ -match '^ Total\s+4\s+3[.,]00$' }).Count
+$emptyRow = @($lines | Where-Object { $_ -match '^ {32}\s*1\s+0 B\s' }).Count
+$totalRow = @($lines | Where-Object { $_ -match '^ Total\s+4\s+3[.,]00 MiB$' }).Count
 $table    = ($lines | Where-Object { $_ -match '^ (\.|Total| {20})' }) -join ' | '
 
 Assert ($pdfRow -ge 0)                     ".pdf row with 1 file [$table]"
