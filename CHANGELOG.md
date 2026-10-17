@@ -3,7 +3,7 @@
 Changes to 7zBackup.ps1, newest version first. Categories: Bug, Feat (feature), Code, Speed, Sec (security),
 Ui (user interface). Some old entries use Minor or New, or have no category.
 
-## Unreleased
+## 2.4.1-Stable (2026-10-17, Anlan)
 
 - Ui: The archiving progress line reads "Progress 45% - 1,50 MiB" (was "45% - Archive Size 1,50 MiB so far ..."). Without a percent (7-Zip 9) it keeps "Archive Size ... so far ..."
 - Ui: Sizes in the log and the progress bars use binary units: whole bytes below 1 KiB, then KiB, MiB, GiB and TiB with 2 decimals (was MB with 2 decimals). It covers the scan and archive progress, the selection details, the archives list, the free space, the archive size, the IO speed and the file size limits. The counters stay in bytes
