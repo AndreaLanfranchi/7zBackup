@@ -33,8 +33,8 @@ Write-SelectionStats
 $lines = @($MyContext.Logger.ToString().Split("`n") | ForEach-Object { $_.TrimEnd() })
 $pdfRow   = [array]::IndexOf($lines, @($lines | Where-Object { $_ -match '^ \.pdf\s+1\s' })[0])
 $txtRow   = [array]::IndexOf($lines, @($lines | Where-Object { $_ -match '^ \.txt\s+2\s' })[0])
-$emptyRow = @($lines | Where-Object { $_ -match '^ {32}\s*1\s+0[.,]00\s' }).Count
-$totalRow = @($lines | Where-Object { $_ -match '^ Total\s+4\s+3[.,]00$' }).Count
+$emptyRow = @($lines | Where-Object { $_ -match '^ {32}\s*1\s+0 B\s' }).Count
+$totalRow = @($lines | Where-Object { $_ -match '^ Total\s+4\s+3[.,]00 MiB$' }).Count
 $table    = ($lines | Where-Object { $_ -match '^ (\.|Total| {20})' }) -join ' | '
 
 Assert ($pdfRow -ge 0)                     ".pdf row with 1 file [$table]"
@@ -42,6 +42,14 @@ Assert ($txtRow -ge 0)                     ".txt row with 2 files"
 Assert ($pdfRow -lt $txtRow)               ".pdf (2 MB) comes before .txt (1 MB)"
 Assert ($emptyRow -eq 1)                   "row for files without extension"
 Assert ($totalRow -eq 1)                   "total: 4 files, 3 MB"
+
+# The headers "Abs %" and "Inc %" end where the numbers of the rows end
+$header  = @($lines | Where-Object { $_ -match '^ Extension\s+Count\s+Total Size\s+Abs %\s+Inc %$' })[0]
+$pdfLine = @($lines | Where-Object { $_ -match '^ \.pdf\s+1\s' })[0]
+$numbers = [regex]::Match($pdfLine, '(\S+)\s+(\S+)$')
+Assert ($header -and $pdfLine)             "precondition, header and .pdf row found"
+Assert (($header.IndexOf("Abs %") + 5) -eq ($numbers.Groups[1].Index + $numbers.Groups[1].Length)) "Abs % header is aligned with its numbers [$header | $pdfLine]"
+Assert (($header.IndexOf("Inc %") + 5) -eq ($numbers.Groups[2].Index + $numbers.Groups[2].Length)) "Inc % header is aligned with its numbers"
 
 Write-Host ""
 If($Failures -gt 0) { Write-Host " $Failures assertion(s) failed" -ForegroundColor Red; exit 1 }

@@ -765,7 +765,7 @@ Function Add-ScanException ($errorObject, [string]$name) {
 # -----------------------------------------------------------------------------
 Function Trace-ScanProgress ($folder, [string]$operation) {
 	If($MyContext.ProgressWatch -and ($MyContext.ProgressWatch.ElapsedMilliseconds -lt 500)) { Return }
-	Trace-Progress ("Folder {0}" -f $folder.RealName) $operation ("Selected {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3,0:n2} MBytes to backup" -f $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, ($Counters.BytesSelected / 1MB))
+	Trace-Progress ("Folder {0}" -f $folder.RealName) $operation ("Selected {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3} to backup" -f $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, (Format-Size $Counters.BytesSelected))
 }
 
 # -----------------------------------------------------------------------------
@@ -1568,6 +1568,25 @@ Function Trace ($message) {
 }
 
 # -----------------------------------------------------------------------------
+# Function 		: Format-Size
+# -----------------------------------------------------------------------------
+# Description	: Formats a size for the log and the progress bars: whole bytes
+#				  below 1 KiB, then KiB, MiB, GiB and TiB with 2 decimals. The
+#				  counters stay in bytes
+# Parameters    : [double]$bytes - The size in bytes
+# Returns       : [string] e.g. "512 B", "1.50 MiB"
+# -----------------------------------------------------------------------------
+Function Format-Size ([double]$bytes) {
+	$value = [Math]::Abs($bytes)
+	If($value -lt 1024) { Return ("{0,0:n0} B" -f $bytes) }
+	$units = "KiB", "MiB", "GiB", "TiB"
+	$unit = -1
+	# A value which rounds to 1,024.00 moves to the next unit
+	Do { $value /= 1024; $unit++ } While(([Math]::Round($value, 2) -ge 1024) -and ($unit -lt 3))
+	"{0,0:n2} {1}" -f ([Math]::Sign($bytes) * $value), $units[$unit]
+}
+
+# -----------------------------------------------------------------------------
 # Function 		: Format-Elapsed
 # -----------------------------------------------------------------------------
 # Description	: Formats a time span as "d : h : m : s" for the log
@@ -2203,15 +2222,15 @@ Function Write-SelectionStats {
 	Trace " "
 	Trace " Selection Details"
 	Trace " ------------------------------------------------------------------------------"
-	Trace " Extension                              Count          Total MB  Abs %   Inc % "
+	Trace " Extension                              Count        Total Size  Abs %   Inc % "
 	Trace " -------------------------------  ----------- ----------------- ------- -------"
 	$totalCount = 0; [int64]$totalBytes = 0
 	$statsByExtension | ForEach-Object {
 		$totalCount += $_.Count ; $totalBytes += $_.Size
-		Trace (" {0,-31} {1,11:n0} {2,17:n2}  {3,6:n2}  {4,6:n2}" -f $_.Name, $_.Count, ($_.Size/1MB), ($_.Size/ $Counters.BytesSelected * 100), ($totalBytes / $Counters.BytesSelected * 100))
+		Trace (" {0,-31} {1,11:n0} {2,17}  {3,6:n2}  {4,6:n2}" -f $_.Name, $_.Count, (Format-Size $_.Size), ($_.Size/ $Counters.BytesSelected * 100), ($totalBytes / $Counters.BytesSelected * 100))
 	}
 	Trace "                                  ----------- ----------------- "
-	Trace (" {0,-31} {1,11:n0} {2,17:n2}" -f "Total", $totalCount, ($totalBytes/1MB))
+	Trace (" {0,-31} {1,11:n0} {2,17}" -f "Total", $totalCount, (Format-Size $totalBytes))
 	Trace "                                  =========== ================= `n"
 }
 
@@ -2320,10 +2339,12 @@ public class SevenZipOutput {
 		Start-Sleep -Milliseconds 500
 		$Status = "Waiting for archive ..."
 		$ArchiveSize = Get-ArchiveSize
-		If ( $ArchiveSize -gt 0 ) { $Status = "Archive Size {0,0:n2} MByte. so far ..." -f ($ArchiveSize / 1Mb) }
 		# -1: no percent yet (7-Zip 9 prints none), Write-Progress shows no bar
 		$percent = $sevenZipOutput.Percent
-		If ( $percent -ge 0 ) { $Status = "{0}% - {1}" -f $percent, $Status }
+		If ( $percent -ge 0 ) {
+			If ( $ArchiveSize -gt 0 ) { $Status = Format-Size $ArchiveSize }
+			$Status = "Progress {0}% - {1}" -f $percent, $Status
+		} ElseIf ( $ArchiveSize -gt 0 ) { $Status = "Archive Size {0} so far ..." -f (Format-Size $ArchiveSize) }
 
 		# Log the 7-Zip error lines received so far, in order
 		$stdErrLine = $null
@@ -2404,9 +2425,9 @@ Function Invoke-Rotation {
 	Get-ChildItem -LiteralPath $BkDestPath | Where-Object { $_.Name -match $fileNameRgx -and !$_.PSIscontainer } | Sort-Object @{expression={$_.Name};Descending=$true} | foreach-object {
 		If(!($BkRotate -le 0)) {
 			If ($_.Name.StartsWith($BkArchiveName, [StringComparison]::OrdinalIgnoreCase)) {
-				Trace (" New      : {0,-48} {1,15:n2} MB " -f $_.Name, $($_.Length / 1MB) ); $totalArchiveBytes += [int64]$_.Length
+				Trace (" New      : {0,-48} {1,15} " -f $_.Name, (Format-Size $_.Length) ); $totalArchiveBytes += [int64]$_.Length
 			} Else {
-				Trace (" Kept     : {0,-48} {1,15:n2} MB " -f $_.Name, $($_.Length / 1MB) ); $totalArchiveBytes += [int64]$_.Length
+				Trace (" Kept     : {0,-48} {1,15} " -f $_.Name, (Format-Size $_.Length) ); $totalArchiveBytes += [int64]$_.Length
 			}
 
 			# Check is volumized archive
@@ -2414,12 +2435,12 @@ Function Invoke-Rotation {
 
 		} Else {
 			Remove-Item -LiteralPath (Join-Path $BkDestPath $_.Name) -ErrorAction "SilentlyContinue" | Out-Null
-			if ($?) { Trace (" Removed  : {0,-48} {1,15:n2} MB " -f $_.Name, $($_.Length / 1MB) ) } Else { Trace (" WARNING Failed to remove {0}" -f $_.Name)}
+			if ($?) { Trace (" Removed  : {0,-48} {1,15} " -f $_.Name, (Format-Size $_.Length) ) } Else { Trace (" WARNING Failed to remove {0}" -f $_.Name)}
 		}
 	}
 	Trace " ------------------------------------------------------------------------------"
-	Trace (" {0,-59} {1,15:n2} MB" -f "Used space by listed archives (New and Kept)", $($totalArchiveBytes / 1MB) )
-	Trace (" {0,-59} {1,15:n2} MB" -f "Remaining Free space on target", $((([int64](Get-FreeSpace -target $BkDestPath))) / 1MB) )
+	Trace (" {0,-59} {1,15}" -f "Used space by listed archives (New and Kept)", (Format-Size $totalArchiveBytes) )
+	Trace (" {0,-59} {1,15}" -f "Remaining Free space on target", (Format-Size ([int64](Get-FreeSpace -target $BkDestPath))) )
 	Trace " ------------------------------------------------------------------------------`n"
 }
 
@@ -2439,8 +2460,8 @@ Function Invoke-Archiving {
 	$Counters.BytesAvailable = ([int64](Get-FreeSpace -target $BkDestPath))
 	If($Counters.BytesAvailable -lt $Counters.BytesSelected) {
 		Trace (" Warning !! ... you're low on space on target ")
-		Trace (" {0,-31} {1,17:n2}" -f " Required Max..............", ($Counters.BytesSelected/1MB))
-		Trace (" {0,-31} {1,17:n2}" -f " Available  ...............", ($Counters.BytesAvailable/1MB))
+		Trace (" {0,-31} {1,17}" -f " Required Max..............", (Format-Size $Counters.BytesSelected))
+		Trace (" {0,-31} {1,17}" -f " Available  ...............", (Format-Size $Counters.BytesAvailable))
 		Trace (" If 7zip cannot compress enough it will fail `n")
 	}
 
@@ -2470,10 +2491,10 @@ Function Invoke-Archiving {
 
 		# Output informations in log file
 		Trace (" Created      : {1} in {0} " -f $BkDestPath, $BkArchiveName)
-		Trace (" Archive Size : {0,0:n2} MB = {1,2:n2}% of original size" -f ($ArchiveSize / 1Mb), ((($ArchiveSize / $Counters.BytesSelected)) * 100))
+		Trace (" Archive Size : {0} = {1,2:n2}% of original size" -f (Format-Size $ArchiveSize), ((($ArchiveSize / $Counters.BytesSelected)) * 100))
 		Trace (" 7zip time    : {0}" -f (Format-Elapsed $MyContext.CompressionElapsed))
 		Trace (" Performance  : {0,0:n2} files/sec" -f ($Counters.FilesSelected / $MyContext.CompressionElapsed.TotalSeconds) )
-		Trace (" IO Avg Speed : Read {0,0:n2} MB/Sec / Write {1,0:n2} MB/Sec" -f (($Counters.BytesSelected / $MyContext.CompressionElapsed.TotalSeconds) / 1MB), (($ArchiveSize / $MyContext.CompressionElapsed.TotalSeconds) / 1MB) )
+		Trace (" IO Avg Speed : Read {0}/Sec / Write {1}/Sec" -f (Format-Size ($Counters.BytesSelected / $MyContext.CompressionElapsed.TotalSeconds)), (Format-Size ($ArchiveSize / $MyContext.CompressionElapsed.TotalSeconds)) )
 		Trace " "
 
 		# Do Post Archiving, then rotation over backup files
@@ -2640,8 +2661,8 @@ If (Test-Variable "BkMinFileAge") { Trace " + Min File Age : $BkMinFileAge days"
 # --------------------------------------------------------------------
 # Check we have max/min filesize to honor
 # --------------------------------------------------------------------
-If (Test-Variable "BkMaxFileSize") { Trace " + Max File Size : $BkMaxFileSize bytes" }
-If (Test-Variable "BkMinFileSize") { Trace " + Min File Size : $BkMinFileSize bytes" }
+If (Test-Variable "BkMaxFileSize") { Trace (" + Max File Size : {0}" -f (Format-Size $BkMaxFileSize)) }
+If (Test-Variable "BkMinFileSize") { Trace (" + Min File Size : {0}" -f (Format-Size $BkMinFileSize)) }
 
 Read-MatchRule $BkSelectionContents "matchexcludefiles" "Files Exclusion Criteria" " - Regex : " "All files matching the above listed regular expressions `n WILL NOT BE INCLUDED IN BACKUP !!!" " None "
 Read-MatchRule $BkSelectionContents "matchexcludepath" "Exclude Paths Criteria" " -match " "All directories matching the above listed regular expressions `n WILL NOT BE INCLUDED IN BACKUP !!!" " None "
@@ -2714,7 +2735,7 @@ $MyContext.SelectionElapsed = (Get-Date) - $MyContext.SelectionStart
 
 # Trace informations about what is selected
 Trace (" Phase time   : {0}" -f (Format-Elapsed $MyContext.SelectionElapsed))
-Trace (" Selected     : {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3,0:n2} MBytes to backup" -f  $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, ($Counters.BytesSelected/1mb))
+Trace (" Selected     : {0,0:n0} out of {1,0:n0} files in {2,0:n0} folders. {3} to backup" -f  $Counters.FilesSelected, $Counters.FilesProcessed, $Counters.FoldersDone, (Format-Size $Counters.BytesSelected))
 Trace (" Performance  : {0,0:n2} files/sec " -f ( $Counters.FilesProcessed / $MyContext.SelectionElapsed.TotalSeconds ) )
 
 
