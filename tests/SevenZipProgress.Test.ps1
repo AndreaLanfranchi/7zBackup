@@ -80,7 +80,7 @@ $detail = @([System.IO.File]::ReadAllLines($BkCompressDetail))
 Assert (($detail -join "|") -eq "7-Zip fake|+ a.bin|+ b.bin|Everything is Ok") "Compress-Detail.txt has the messages and files only, no progress frame [$($detail -join ' | ')]"
 Assert ($ProgressPercents -contains 75)                                  "the percent reaches Write-Progress [$($ProgressPercents -join ',')]"
 Assert (($ProgressPercents | Where-Object { $_ -ge 0 } | Select-Object -Last 1) -ge 75) "the last percent is not lost [$($ProgressPercents -join ',')]"
-Assert (@($ProgressStatus | Where-Object { $_ -match '^7[0-9]%' }).Count -ge 1)  "the status text shows the percent [$(($ProgressStatus | Select-Object -Unique) -join ' | ')]"
+Assert (@($ProgressStatus | Where-Object { $_ -match '^Progress 7[0-9]% - ([1-9]|Waiting)' }).Count -ge 1)  "the status text shows the percent and the size [$(($ProgressStatus | Select-Object -Unique) -join ' | ')]"
 Remove-Item -LiteralPath $work, $writer, $fake -Recurse -Force
 
 Write-Host "`n Case: real 7-Zip"
@@ -93,6 +93,7 @@ If(Test-Path -LiteralPath $real) {
 	Assert (@($detail | Where-Object { $_ -match '^\+ [abc]\.bin$' }).Count -eq 3)           "Compress-Detail.txt lists the 3 files"
 	Assert ($Bk7ZipRetc -eq 0 -and (Get-ChildItem -LiteralPath "$work\dest").Count -eq 1)    "the archive was created [exit $Bk7ZipRetc]"
 	Assert (@($ProgressPercents | Where-Object { $_ -gt 0 -and $_ -lt 100 }).Count -ge 1)    "the real percent reaches Write-Progress [$($ProgressPercents -join ',')]"
+	Assert (@($ProgressStatus | Where-Object { $_ -match '^Progress [0-9]+% - [0-9][0-9.,]* (B|KiB|MiB)$' }).Count -ge 1) "the status shows the percent and the formatted size [$(($ProgressStatus | Select-Object -Unique) -join ' | ')]"
 	Remove-Item -LiteralPath $work -Recurse -Force
 } Else {
 	Write-Host " SKIP : $real not found"

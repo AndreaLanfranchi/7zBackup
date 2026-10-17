@@ -43,6 +43,14 @@ Assert ($pdfRow -lt $txtRow)               ".pdf (2 MB) comes before .txt (1 MB)
 Assert ($emptyRow -eq 1)                   "row for files without extension"
 Assert ($totalRow -eq 1)                   "total: 4 files, 3 MB"
 
+# The headers "Abs %" and "Inc %" end where the numbers of the rows end
+$header  = @($lines | Where-Object { $_ -match '^ Extension\s+Count\s+Total Size\s+Abs %\s+Inc %$' })[0]
+$pdfLine = @($lines | Where-Object { $_ -match '^ \.pdf\s+1\s' })[0]
+$numbers = [regex]::Match($pdfLine, '(\S+)\s+(\S+)$')
+Assert ($header -and $pdfLine)             "precondition, header and .pdf row found"
+Assert (($header.IndexOf("Abs %") + 5) -eq ($numbers.Groups[1].Index + $numbers.Groups[1].Length)) "Abs % header is aligned with its numbers [$header | $pdfLine]"
+Assert (($header.IndexOf("Inc %") + 5) -eq ($numbers.Groups[2].Index + $numbers.Groups[2].Length)) "Inc % header is aligned with its numbers"
+
 Write-Host ""
 If($Failures -gt 0) { Write-Host " $Failures assertion(s) failed" -ForegroundColor Red; exit 1 }
 Write-Host " All assertions passed" -ForegroundColor Green

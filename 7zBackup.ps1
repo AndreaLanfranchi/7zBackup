@@ -2222,7 +2222,7 @@ Function Write-SelectionStats {
 	Trace " "
 	Trace " Selection Details"
 	Trace " ------------------------------------------------------------------------------"
-	Trace " Extension                              Count          Total Size  Abs %   Inc % "
+	Trace " Extension                              Count        Total Size  Abs %   Inc % "
 	Trace " -------------------------------  ----------- ----------------- ------- -------"
 	$totalCount = 0; [int64]$totalBytes = 0
 	$statsByExtension | ForEach-Object {
@@ -2339,10 +2339,12 @@ public class SevenZipOutput {
 		Start-Sleep -Milliseconds 500
 		$Status = "Waiting for archive ..."
 		$ArchiveSize = Get-ArchiveSize
-		If ( $ArchiveSize -gt 0 ) { $Status = "Archive Size {0} so far ..." -f (Format-Size $ArchiveSize) }
 		# -1: no percent yet (7-Zip 9 prints none), Write-Progress shows no bar
 		$percent = $sevenZipOutput.Percent
-		If ( $percent -ge 0 ) { $Status = "{0}% - {1}" -f $percent, $Status }
+		If ( $percent -ge 0 ) {
+			If ( $ArchiveSize -gt 0 ) { $Status = Format-Size $ArchiveSize }
+			$Status = "Progress {0}% - {1}" -f $percent, $Status
+		} ElseIf ( $ArchiveSize -gt 0 ) { $Status = "Archive Size {0} so far ..." -f (Format-Size $ArchiveSize) }
 
 		# Log the 7-Zip error lines received so far, in order
 		$stdErrLine = $null
