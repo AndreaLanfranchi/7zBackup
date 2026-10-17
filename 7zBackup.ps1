@@ -2105,6 +2105,20 @@ Function Assert-Variables {
 }
 
 # -----------------------------------------------------------------------------
+# Function 		: Format-Threading
+# -----------------------------------------------------------------------------
+# Description	: Threading as the run header shows it. 0 and 1 threads are
+#				  passed to 7-Zip as -mmt=off (see Get-SevenZipArguments)
+# Parameters    : --
+# Returns       : [string] "Auto", "off" or "N threads"
+# -----------------------------------------------------------------------------
+Function Format-Threading {
+	If(!(Test-Variable "BkArchiveThreads")) { Return "Auto" }
+	If($BkArchiveThreads -le 1) { Return "off" }
+	Return "$BkArchiveThreads threads"
+}
+
+# -----------------------------------------------------------------------------
 # Function 		: Write-RunHeader
 # -----------------------------------------------------------------------------
 # Description	: Logs the settings of the run
@@ -2123,7 +2137,7 @@ Function Write-RunHeader {
 	Trace " Archive Type ...... :  $BkArchiveType"
 	If((Test-Variable "BkRotate")) { Trace " Rotation policy ... :  Keep last $BkRotate archive(s) " } Else { Trace " Rotation policy ... :  Keep all archive(s) " }
 	Trace (" 7zip binary ....... :  {0} (ver. {1}) " -f $Bk7zipBin,$MyContext.SevenZBinVersionInfo.ProductVersion)
-	Trace (" 7zip threading .... :  {0} " -f ( & { If(Test-Variable "BkArchiveThreads") { Write-Output "$BkArchiveThreads threads" } Else { Write-Output "Auto"}   }))
+	Trace (" 7zip threading .... :  {0} " -f (Format-Threading))
 	If(Test-Variable "BkArchiveCompression") { Trace " 7zip Compression .. :  $BkArchiveCompression" } Else { Trace " 7zip Compression .. :  Auto" }
 	Trace " "
 	Trace " ------------------------------------------------------------------------------"

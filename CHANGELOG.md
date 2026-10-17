@@ -5,7 +5,7 @@ Ui (user interface). Some old entries use Minor or New, or have no category.
 
 ## Unreleased
 
-- Bug: --threads 1 passed -mmt=1 to 7-Zip. The help says 1 or 0 disables multithreading: both pass -mmt=off now
+- Bug: --threads 1 passed -mmt=1 to 7-Zip. The help says 1 or 0 disables multithreading: both pass -mmt=off now, and the run header shows "off" for them (was "0 threads" or "1 threads")
 
 ## 2.4.0-Stable (2026-10-17, Anlan)
 
