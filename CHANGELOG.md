@@ -3,6 +3,10 @@
 Changes to 7zBackup.ps1, newest version first. Categories: Bug, Feat (feature), Code, Speed, Sec (security),
 Ui (user interface). Some old entries use Minor or New, or have no category.
 
+## Unreleased
+
+- Bug: --threads 1 passed -mmt=1 to 7-Zip. The help says 1 or 0 disables multithreading: both pass -mmt=off now
+
 ## 2.4.0-Stable (2026-10-17, Anlan)
 
 - Bug: A junction or symbolic link to one of its own parent folders was scanned until the path got too long. A folder is now scanned once, however many paths lead to it: the scan keeps the identity of each folder scanned (volume serial number and file index) and skips a folder already seen, logged as visited in the exclusions. The first path wins, so a folder reached by two links is no longer selected twice. Cost: about 0.12 ms per folder (one handle opened)

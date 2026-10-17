@@ -41,6 +41,8 @@ $cases = @(
 	   Expected = "a -ssw -slp -mx5 -scsUTF-8 -sccUTF-8 -bd -bb1 -bsp1 -bso1 -bse2 -mtm=on -mtc=on -mta=on -mmt=4 -t7z $dest $catalog" },
 	@{ Name = "7-Zip 19, 7z, threads off, not solid";       Version = 19; Type = "7z"; Vars = @{ BkArchiveThreads = 0; BkArchiveSolid = $False }
 	   Expected = "a -ssw -slp -scsUTF-8 -sccUTF-8 -bd -bb1 -bsp1 -bso1 -bse2 -mtm=on -mtc=on -mta=on -mmt=off -ms=off -t7z $dest $catalog" },
+	@{ Name = "7-Zip 19, 7z, one thread is no multithreading"; Version = 19; Type = "7z"; Vars = @{ BkArchiveThreads = 1; BkArchiveSolid = $True }
+	   Expected = "a -ssw -slp -scsUTF-8 -sccUTF-8 -bd -bb1 -bsp1 -bso1 -bse2 -mtm=on -mtc=on -mta=on -mmt=off -t7z $dest $catalog" },
 	@{ Name = "7-Zip 9, zip, volumes, password and headers"; Version = 9;  Type = "zip"; Vars = @{ BkArchiveCompression = 9; BkArchiveVolumes = @("10m", "1g"); BkArchivePassword = "x"; BkEncryptHeaders = $True }
 	   Expected = "a -ssw -slp -mx9 -scsUTF-8 -sccUTF-8 -bd -v10m -v1g -tzip -p -mhe $dest $catalog" },
 	@{ Name = "7-Zip 19, tar ignores compression";           Version = 19; Type = "tar"; Vars = @{ BkArchiveCompression = 9 }

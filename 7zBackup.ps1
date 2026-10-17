@@ -2223,7 +2223,7 @@ Function Get-SevenZipArguments ([string]$destFile) {
 
 	# Control Threading
 	If(Test-Variable "BkArchiveThreads") {
-		If($BkArchiveThreads -lt 1) { $arguments += "-mmt=off" } Else { $arguments += "-mmt=$BkArchiveThreads" }
+		If($BkArchiveThreads -le 1) { $arguments += "-mmt=off" } Else { $arguments += "-mmt=$BkArchiveThreads" }
 	}
 
 	# Control solid archives and volumes
